@@ -1,0 +1,50 @@
+# FreeBuff2API 配置示例 — 复制为 config.yaml 并按需修改
+#
+# 所有字段均可在运行中修改：文件保存后 fsnotify + 15s 轮询会触发
+# 秒级热加载（密钥池 / 上游地址 / 客户端鉴权 / 熔断参数全部生效），无需重启。
+#
+# 字段未设置时走内置默认值（见下方注释）；环境变量可覆盖（兼容旧部署）。
+
+server:
+  # HTTP 监听地址；默认 ":8080"
+  listen: ":8080"
+
+  # 客户端访问 /v1/* 时需要携带的 Bearer Token；留空表示不启用客户端鉴权
+  # api_key: "sk-your-downstream-guard-key"
+  api_key: ""
+
+upstream:
+  # FreeBuff / codebuff 后端；默认 "https://www.codebuff.com"
+  base_url: "https://www.codebuff.com"
+
+  # 计费模式："free" 或 "normal"；free 需要账号本身处于 FREE 模式且非被限流的地区
+  cost_mode: "free"
+
+  # 当请求未携带 model 字段时的默认模型
+  default_model: "anthropic/claude-sonnet-4"
+
+auth:
+  # ── 多账号密钥来源 ──
+  # 方式 1：在此处内联填写 FreeBuff authToken；按列表顺序加入池中
+  # api_keys:
+  #   - "cb_live_xxx..."
+  #   - "cb_live_yyy..."
+  api_keys: []
+
+  # 方式 2：将 codebuff credentials.json 放入下方目录（推荐，支持热加载）
+  # 每个账号一个 .json，format 对齐 common/src/util/credentials.ts 的 userSchema
+  dir: "auths"
+
+  # 目录扫描兜底频率（fsnotify 有事件时立即生效，此项是网络 / Docker 卷驱动兜底）
+  watch_interval: 15s
+
+  # ── 熔断参数 ──
+  breaker:
+    # 连续失败多少次触发熔断
+    threshold: 3
+    # 熔断后跳过该 key 的时长，到期自动复活
+    cooldown: 12h
+
+logging:
+  # 当前仅控制启动日志详细度；后续会扩展到请求日志
+  level: info

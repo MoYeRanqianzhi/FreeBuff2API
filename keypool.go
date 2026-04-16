@@ -62,6 +62,33 @@ func NewKeyPoolWithLabels(keys, labels []string) *KeyPool {
 	return p
 }
 
+// SetBreakerTuning updates threshold + cooldown without clearing breaker state.
+// Zero or negative values are ignored (keep previous tuning).
+func (p *KeyPool) SetBreakerTuning(threshold int, cooldown time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if threshold > 0 {
+		p.threshold = threshold
+	}
+	if cooldown > 0 {
+		p.cooldown = cooldown
+	}
+}
+
+// Threshold returns the current breaker threshold (primarily for tests/diagnostics).
+func (p *KeyPool) Threshold() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.threshold
+}
+
+// Cooldown returns the current breaker cooldown.
+func (p *KeyPool) Cooldown() time.Duration {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.cooldown
+}
+
 func (p *KeyPool) Size() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

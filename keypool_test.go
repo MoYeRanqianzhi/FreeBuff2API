@@ -178,20 +178,19 @@ func TestFingerprint(t *testing.T) {
 	}
 }
 
-func TestLoadKeySourcesEnvAndAuths(t *testing.T) {
+func TestLoadKeySourcesInlineAndAuths(t *testing.T) {
 	dir := t.TempDir()
 	writeCred(t, filepath.Join(dir, "alice.json"), "tok-alice")
 	writeCred(t, filepath.Join(dir, "bob.json"), "tok-bob")
-	// bad file
 	if err := os.WriteFile(filepath.Join(dir, "broken.json"), []byte("not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	keys, labels, err := LoadKeySources("tok-env", dir)
+	keys, labels, err := LoadKeySources([]string{"tok-inline"}, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"tok-env", "tok-alice", "tok-bob"}
+	want := []string{"tok-inline", "tok-alice", "tok-bob"}
 	if len(keys) != len(want) {
 		t.Fatalf("keys=%v want=%v", keys, want)
 	}
@@ -200,7 +199,7 @@ func TestLoadKeySourcesEnvAndAuths(t *testing.T) {
 			t.Fatalf("keys[%d]=%q want %q", i, keys[i], w)
 		}
 	}
-	if labels[0] != "env" || labels[1] != "auths/alice.json" || labels[2] != "auths/bob.json" {
+	if labels[0] != "config.yaml" || labels[1] != "auths/alice.json" || labels[2] != "auths/bob.json" {
 		t.Fatalf("labels=%v", labels)
 	}
 }
@@ -208,7 +207,7 @@ func TestLoadKeySourcesEnvAndAuths(t *testing.T) {
 func TestLoadKeySourcesDedup(t *testing.T) {
 	dir := t.TempDir()
 	writeCred(t, filepath.Join(dir, "a.json"), "same-token")
-	keys, _, err := LoadKeySources("same-token", dir)
+	keys, _, err := LoadKeySources([]string{"same-token"}, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,49 +217,12 @@ func TestLoadKeySourcesDedup(t *testing.T) {
 }
 
 func TestLoadKeySourcesMissingDirIgnored(t *testing.T) {
-	keys, _, err := LoadKeySources("env-only", filepath.Join(t.TempDir(), "does-not-exist"))
+	keys, _, err := LoadKeySources([]string{"inline-only"}, filepath.Join(t.TempDir(), "does-not-exist"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(keys) != 1 || keys[0] != "env-only" {
+	if len(keys) != 1 || keys[0] != "inline-only" {
 		t.Fatalf("got %v", keys)
-	}
-}
-
-func TestAuthsWatcherReloadsOnChange(t *testing.T) {
-	dir := t.TempDir()
-	writeCred(t, filepath.Join(dir, "a.json"), "tok-a")
-
-	keys, labels, _ := LoadKeySources("", dir)
-	pool := NewKeyPoolWithLabels(keys, labels)
-
-	if pool.Size() != 1 {
-		t.Fatalf("initial size=%d", pool.Size())
-	}
-
-	w := NewAuthsWatcher(pool, "", dir, 50*time.Millisecond)
-	// Tick manually to avoid goroutine timing.
-	w.lastSig = w.signature()
-
-	// Ensure mtime moves — some filesystems have coarse resolution.
-	time.Sleep(10 * time.Millisecond)
-	writeCred(t, filepath.Join(dir, "b.json"), "tok-b")
-	w.Tick()
-
-	if pool.Size() != 2 {
-		t.Fatalf("after add, size=%d, snap=%+v", pool.Size(), pool.Snapshot())
-	}
-
-	// Remove a.json
-	if err := os.Remove(filepath.Join(dir, "a.json")); err != nil {
-		t.Fatal(err)
-	}
-	w.Tick()
-	if pool.Size() != 1 {
-		t.Fatalf("after remove, size=%d", pool.Size())
-	}
-	if pool.Snapshot()[0].Key != "tok-b" {
-		t.Fatalf("remaining key wrong: %+v", pool.Snapshot())
 	}
 }
 

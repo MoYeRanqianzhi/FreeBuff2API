@@ -7,6 +7,7 @@
 - [v0.1.0 测试报告](memory/test-report-v0.1.0.md) - 真实请求性能数据 (CN/normal)
 - [US 节点部署报告](memory/deployment-us-v0.1.1.md) - **FREE 模式 US 节点可用性 + 性能**
 - [多账号轮询](memory/multi-account-rotation.md) - v0.2.0 多账号 round-robin 负载均衡设计
+- [YAML 配置热加载](memory/config-hot-reload.md) - v0.5.0 config.yaml + fsnotify 实时生效
 
 ## 生产部署
 - 主机: `remote3` (Los Angeles, US, 38.55.179.54)
@@ -24,6 +25,7 @@
 - 2026-04-17: **模型列表补全** —— codebuff backend 对 `model` 字段透传 OpenRouter，不做白名单校验；原 `models.go` 静态列表只到 4.1 世代，缺 `claude-opus-4.6/4.5`、`sonnet-4.6/4.5`、`haiku-4.5`、`gpt-5.3`、`gemini-3.x`、qwen3、kimi-k2.5、glm-4.7 等。已按上游 `agent-definition.ts` 的 `ModelName` union + `claude-oauth.ts` 的 OAuth 映射全量补齐
 - 2026-04-17: **多账号轮询（v0.3.0）** —— `FREEBUFF_API_KEY` 支持逗号/分号/换行分隔多 key；`KeyPool` 用原子计数器做请求级 round-robin；一个请求的 `startAgentRun` + `chat/completions` 绑定同一 key（runId 按账号归属）；日志用指纹脱敏
 - 2026-04-17: **熔断 + 热加载（v0.4.0）** —— 连续 3 次失败熔断，12h 后自动恢复；`auths/*.json` 目录放 codebuff `credentials.json`（读取 `authToken`），默认 15s 扫描一次热加载；`/status/keys` 端点查看健康状况
+- 2026-04-17: **YAML 配置热加载（v0.5.0）** —— 参考 `router-for-me/CLIProxyAPI` 的设计，引入 `config.yaml` 作为单一事实来源（server/upstream/auth/breaker/logging），fsnotify + 15s 轮询兜底实现秒级热加载；env 变量仅作为兼容性覆盖；`-config` CLI 参数；Reloader 保留熔断状态 + 活 `Current()` 读取，middleware/proxy 运行时读配置，无需重启
 
 ## 实测性能（v0.1.0）
 - TTFT: 2.2 ~ 3.2s（含 runId 注册 ~700ms）

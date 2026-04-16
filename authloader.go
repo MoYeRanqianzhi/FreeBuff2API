@@ -10,39 +10,42 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 // credentialFile mirrors codebuff's common/src/util/credentials.ts userSchema.
 // Only authToken is required; other fields are captured for diagnostics.
 type credentialFile struct {
-	ID              string `json:"id"`
-	Email           string `json:"email"`
+	ID              string  `json:"id"`
+	Email           string  `json:"email"`
 	Name            *string `json:"name"`
-	AuthToken       string `json:"authToken"`
-	FingerprintID   string `json:"fingerprintId"`
-	FingerprintHash string `json:"fingerprintHash"`
+	AuthToken       string  `json:"authToken"`
+	FingerprintID   string  `json:"fingerprintId"`
+	FingerprintHash string  `json:"fingerprintHash"`
 }
 
-// LoadKeySources reads keys from both env and auths/ dir, preserving label
-// provenance (env vs filename) so logs and /status can identify the source.
-//
-// Order: env keys first (by declaration), then auths/ files sorted by name.
-// Duplicates across sources are de-duplicated — the first occurrence wins.
-func LoadKeySources(envRaw, authsDir string) (keys, labels []string, err error) {
+// LoadKeySources combines inline api_keys from the config with files discovered
+// under auths/. Source order: config.yaml api_keys first, then auths/*.json
+// sorted by filename. Duplicates across sources are dropped (first wins).
+func LoadKeySources(inline []string, authsDir string) (keys, labels []string, err error) {
 	seen := make(map[string]struct{})
 
-	// 1) env
-	for _, k := range parseKeys(envRaw) {
+	for _, k := range inline {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
 		if _, dup := seen[k]; dup {
 			continue
 		}
 		seen[k] = struct{}{}
 		keys = append(keys, k)
-		labels = append(labels, "env")
+		labels = append(labels, "config.yaml")
 	}
 
-	// 2) auths/*.json
 	fileKeys, fileLabels, ferr := loadAuthsDir(authsDir)
 	if ferr != nil && !errors.Is(ferr, os.ErrNotExist) {
 		return nil, nil, ferr
@@ -55,7 +58,6 @@ func LoadKeySources(envRaw, authsDir string) (keys, labels []string, err error) 
 		keys = append(keys, k)
 		labels = append(labels, fileLabels[i])
 	}
-
 	return keys, labels, nil
 }
 
@@ -102,106 +104,238 @@ func loadAuthsDir(dir string) (keys, labels []string, err error) {
 	return keys, labels, nil
 }
 
-// AuthsWatcher periodically re-reads env + auths/ and reloads the KeyPool.
-// It tracks a directory signature (file names + sizes + mtimes) to avoid
-// reloading when nothing changed.
-type AuthsWatcher struct {
-	dir        string
-	envRaw     string
+// Reloader is the callback invoked when the config or auths/ tree changes.
+// It re-reads sources, rebuilds the key pool, and propagates new upstream /
+// server settings via onConfig (may be nil).
+type Reloader struct {
+	configPath string
 	pool       *KeyPool
-	interval   time.Duration
-	lastSig    string
+
+	mu       sync.RWMutex
+	current  *Config
+	onConfig func(old, next *Config)
 }
 
-func NewAuthsWatcher(pool *KeyPool, envRaw, dir string, interval time.Duration) *AuthsWatcher {
-	return &AuthsWatcher{
-		dir:      dir,
-		envRaw:   envRaw,
-		pool:     pool,
-		interval: interval,
+func NewReloader(configPath string, initial *Config, pool *KeyPool, onConfig func(old, next *Config)) *Reloader {
+	return &Reloader{
+		configPath: configPath,
+		pool:       pool,
+		current:    initial,
+		onConfig:   onConfig,
 	}
 }
 
-// Start runs the watcher until ctx is cancelled. Safe to call once.
-func (w *AuthsWatcher) Start(ctx context.Context) {
-	if w.interval <= 0 {
+// Current returns a snapshot of the live config. Caller must not mutate.
+func (r *Reloader) Current() *Config {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.current
+}
+
+// Reload re-reads config + auths, applies to the pool, and updates snapshots.
+// Safe to call concurrently; serialized by mu.
+func (r *Reloader) Reload(reason string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	next, err := LoadConfig(r.configPath)
+	if err != nil {
+		log.Printf("reload (%s): config load failed — keeping previous: %v", reason, err)
 		return
 	}
-	// Seed signature so the initial Start doesn't cause a spurious reload
-	// (initial load already happened in main).
+
+	keys, labels, err := LoadKeySources(next.Auth.APIKeys, next.Auth.Dir)
+	if err != nil {
+		log.Printf("reload (%s): key load failed — keeping previous pool: %v", reason, err)
+		// Still apply non-auth config changes below.
+	} else {
+		// Apply breaker tuning live.
+		r.pool.SetBreakerTuning(next.Auth.Breaker.Threshold, next.Auth.Breaker.Cooldown)
+		added, removed, kept := r.pool.Reload(keys, labels)
+		log.Printf("reload (%s): keys added=%d removed=%d kept=%d total=%d healthy=%d",
+			reason, added, removed, kept, r.pool.Size(), r.pool.HealthySize())
+	}
+
+	old := r.current
+	r.current = next
+	if r.onConfig != nil {
+		r.onConfig(old, next)
+	}
+}
+
+// Watcher watches the config file and auths/ dir for changes.
+// Uses fsnotify for near-instant reloads, and a periodic tick as a safety net
+// on filesystems where events are unreliable (network mounts, some Docker
+// volume drivers).
+type Watcher struct {
+	configPath   string
+	authsDir     string
+	pollInterval time.Duration
+	reloader     *Reloader
+	debounce     time.Duration
+
+	mu      sync.Mutex
+	pending *time.Timer
+	lastSig string
+}
+
+func NewWatcher(configPath string, reloader *Reloader) *Watcher {
+	cfg := reloader.Current()
+	return &Watcher{
+		configPath:   configPath,
+		authsDir:     cfg.Auth.Dir,
+		pollInterval: cfg.Auth.WatchInterval,
+		reloader:     reloader,
+		debounce:     200 * time.Millisecond,
+	}
+}
+
+// Start launches fsnotify + polling in background until ctx is cancelled.
+func (w *Watcher) Start(ctx context.Context) error {
 	w.lastSig = w.signature()
 
+	fw, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("fsnotify init: %w", err)
+	}
+
+	// Watch the parent dir of the config file (events on the file itself can be
+	// flaky when editors do atomic rename-on-save).
+	if w.configPath != "" {
+		configDir := filepath.Dir(w.configPath)
+		if configDir == "" {
+			configDir = "."
+		}
+		if err := fw.Add(configDir); err != nil {
+			log.Printf("watcher: add config dir %q: %v (continuing)", configDir, err)
+		}
+	}
+	if w.authsDir != "" {
+		if err := os.MkdirAll(w.authsDir, 0o755); err == nil {
+			if err := fw.Add(w.authsDir); err != nil {
+				log.Printf("watcher: add auths dir %q: %v (continuing)", w.authsDir, err)
+			}
+		}
+	}
+
 	go func() {
-		t := time.NewTicker(w.interval)
-		defer t.Stop()
+		defer fw.Close()
+		poll := time.NewTicker(w.pollInterval)
+		defer poll.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.C:
-				w.Tick()
+			case ev, ok := <-fw.Events:
+				if !ok {
+					return
+				}
+				if w.isRelevant(ev) {
+					w.schedule(ev.Name)
+				}
+			case err, ok := <-fw.Errors:
+				if !ok {
+					return
+				}
+				log.Printf("watcher: fsnotify error: %v", err)
+			case <-poll.C:
+				sig := w.signature()
+				if sig != w.lastSig {
+					w.lastSig = sig
+					w.reloader.Reload("poll")
+				}
 			}
 		}
 	}()
+	return nil
 }
 
-// Tick checks the signature and reloads if changed.
-func (w *AuthsWatcher) Tick() {
-	sig := w.signature()
-	if sig == w.lastSig {
-		return
+// isRelevant filters out noise (e.g., editor swap files).
+func (w *Watcher) isRelevant(ev fsnotify.Event) bool {
+	name := ev.Name
+	base := filepath.Base(name)
+	// Ignore swap / temp / backup files.
+	if strings.HasPrefix(base, ".") || strings.HasSuffix(base, "~") || strings.HasSuffix(base, ".swp") {
+		return false
 	}
-	w.lastSig = sig
-
-	keys, labels, err := LoadKeySources(w.envRaw, w.dir)
-	if err != nil {
-		log.Printf("auths watcher: load error: %v", err)
-		return
+	// Match config file by path.
+	if w.configPath != "" && sameFile(name, w.configPath) {
+		return true
 	}
-	if len(keys) == 0 {
-		log.Printf("auths watcher: reload skipped (no keys found)")
-		return
+	// Match auths/*.json by parent dir + suffix.
+	if w.authsDir != "" {
+		dir := filepath.Dir(name)
+		if sameFile(dir, w.authsDir) && strings.HasSuffix(strings.ToLower(base), ".json") {
+			return true
+		}
 	}
-	added, removed, kept := w.pool.Reload(keys, labels)
-	log.Printf("auths watcher: reloaded keys — added=%d removed=%d kept=%d total=%d",
-		added, removed, kept, w.pool.Size())
+	return false
 }
 
-// signature produces a fingerprint of the auths dir (name+size+mtime of each
-// .json). The env string is also hashed so env changes trigger a reload too
-// (rare — typically requires restart — but cheap to include).
-func (w *AuthsWatcher) signature() string {
+// schedule debounces rapid bursts of events (atomic saves often produce 3-4
+// events in <50ms) into a single Reload.
+func (w *Watcher) schedule(trigger string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.pending != nil {
+		w.pending.Stop()
+	}
+	w.pending = time.AfterFunc(w.debounce, func() {
+		sig := w.signature()
+		w.mu.Lock()
+		w.lastSig = sig
+		w.mu.Unlock()
+		w.reloader.Reload("fsnotify:" + filepath.Base(trigger))
+	})
+}
+
+// signature fingerprints config + auths/ so the poll ticker can detect drift
+// that fsnotify might miss.
+func (w *Watcher) signature() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "env:%d|", len(w.envRaw))
-	b.WriteString(w.envRaw)
-	b.WriteByte('|')
-
-	if w.dir == "" {
-		return b.String()
-	}
-	entries, err := os.ReadDir(w.dir)
-	if err != nil {
-		fmt.Fprintf(&b, "err:%v", err)
-		return b.String()
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
+	if w.configPath != "" {
+		if st, err := os.Stat(w.configPath); err == nil {
+			fmt.Fprintf(&b, "cfg:%d:%d|", st.Size(), st.ModTime().UnixNano())
+		} else {
+			b.WriteString("cfg:missing|")
 		}
-		if !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
-			continue
-		}
-		names = append(names, e.Name())
 	}
-	sort.Strings(names)
-	for _, name := range names {
-		full := filepath.Join(w.dir, name)
-		st, err := os.Stat(full)
+	if w.authsDir != "" {
+		entries, err := os.ReadDir(w.authsDir)
 		if err != nil {
-			continue
+			fmt.Fprintf(&b, "auths:err|")
+		} else {
+			names := make([]string, 0, len(entries))
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				if !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
+					continue
+				}
+				names = append(names, e.Name())
+			}
+			sort.Strings(names)
+			for _, n := range names {
+				st, err := os.Stat(filepath.Join(w.authsDir, n))
+				if err != nil {
+					continue
+				}
+				fmt.Fprintf(&b, "%s:%d:%d|", n, st.Size(), st.ModTime().UnixNano())
+			}
 		}
-		fmt.Fprintf(&b, "%s:%d:%d|", name, st.Size(), st.ModTime().UnixNano())
 	}
 	return b.String()
+}
+
+// sameFile compares paths via cleaned absolute representation. Falls back to
+// raw string compare if Abs fails.
+func sameFile(a, b string) bool {
+	aa, errA := filepath.Abs(a)
+	bb, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return filepath.Clean(aa) == filepath.Clean(bb)
 }

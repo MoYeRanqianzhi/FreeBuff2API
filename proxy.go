@@ -13,16 +13,16 @@ import (
 )
 
 type ProxyHandler struct {
-	cfg    *Config
-	client *http.Client
-	keys   *KeyPool
+	reloader *Reloader
+	client   *http.Client
+	keys     *KeyPool
 }
 
-func NewProxyHandler(cfg *Config, pool *KeyPool) *ProxyHandler {
+func NewProxyHandler(reloader *Reloader, pool *KeyPool) *ProxyHandler {
 	return &ProxyHandler{
-		cfg:    cfg,
-		client: &http.Client{},
-		keys:   pool,
+		reloader: reloader,
+		client:   &http.Client{},
+		keys:     pool,
 	}
 }
 
@@ -31,6 +31,8 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"Method not allowed","type":"invalid_request_error"}}`, http.StatusMethodNotAllowed)
 		return
 	}
+
+	cfg := p.reloader.Current()
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -46,7 +48,7 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, ok := req["model"]; !ok || req["model"] == "" {
-		req["model"] = p.cfg.DefaultModel
+		req["model"] = cfg.Upstream.DefaultModel
 	}
 
 	upstreamKey, keyIdx := p.keys.Next()
@@ -56,7 +58,7 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("→ upstream key[%d]=%s", keyIdx, fingerprint(upstreamKey))
 
-	runID, err := p.startAgentRun(r.Context(), upstreamKey)
+	runID, err := p.startAgentRun(r.Context(), cfg.Upstream.BaseURL, upstreamKey)
 	if err != nil {
 		p.keys.MarkFailure(keyIdx)
 		log.Printf("startAgentRun error (key[%d]=%s): %v", keyIdx, fingerprint(upstreamKey), err)
@@ -67,7 +69,7 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	req["codebuff_metadata"] = map[string]any{
 		"run_id":    runID,
 		"client_id": "freebuff2api",
-		"cost_mode": p.cfg.CostMode,
+		"cost_mode": cfg.Upstream.CostMode,
 		"n":         1,
 	}
 	req["usage"] = map[string]any{"include": true}
@@ -78,7 +80,7 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetURL := p.cfg.FreebuffBaseURL + "/api/v1/chat/completions"
+	targetURL := cfg.Upstream.BaseURL + "/api/v1/chat/completions"
 	upstream, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(modified))
 	if err != nil {
 		http.Error(w, `{"error":{"message":"Failed to create upstream request","type":"server_error"}}`, http.StatusInternalServerError)
@@ -98,7 +100,6 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// Count auth / quota failures against the key; transient 5xx too.
 	if resp.StatusCode == http.StatusUnauthorized ||
 		resp.StatusCode == http.StatusForbidden ||
 		resp.StatusCode == http.StatusPaymentRequired ||
@@ -171,9 +172,9 @@ func (p *ProxyHandler) handleNonStream(w http.ResponseWriter, resp *http.Respons
 	io.Copy(w, resp.Body)
 }
 
-func (p *ProxyHandler) startAgentRun(ctx context.Context, apiKey string) (string, error) {
+func (p *ProxyHandler) startAgentRun(ctx context.Context, baseURL, apiKey string) (string, error) {
 	body := []byte(`{"action":"START","agentId":"base2","ancestorRunIds":[]}`)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.FreebuffBaseURL+"/api/v1/agent-runs", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/v1/agent-runs", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}

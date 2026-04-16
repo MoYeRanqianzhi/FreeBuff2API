@@ -23,3 +23,6 @@ Thumbs.db
 auths/*.json
 !auths/README.md
 !auths/.gitkeep
+
+# Local config (may contain inline api_keys). Only the example is tracked.
+/config.yaml

@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-func withMiddleware(h http.Handler, cfg *Config) http.Handler {
-	return recovery(cors(logging(authGuard(h, cfg))))
+func withMiddleware(h http.Handler, reloader *Reloader) http.Handler {
+	return recovery(cors(logging(authGuard(h, reloader))))
 }
 
 func cors(next http.Handler) http.Handler {
@@ -35,9 +35,12 @@ func logging(next http.Handler) http.Handler {
 	})
 }
 
-func authGuard(next http.Handler, cfg *Config) http.Handler {
+// authGuard reads the client API key at request time so live config reloads
+// take effect immediately (no process restart required).
+func authGuard(next http.Handler, reloader *Reloader) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if cfg.APIKey == "" {
+		expected := reloader.Current().Server.APIKey
+		if expected == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -48,7 +51,7 @@ func authGuard(next http.Handler, cfg *Config) http.Handler {
 			http.Error(w, `{"error":{"message":"Missing API key","type":"authentication_error"}}`, http.StatusUnauthorized)
 			return
 		}
-		if token != cfg.APIKey {
+		if token != expected {
 			http.Error(w, `{"error":{"message":"Invalid API key","type":"authentication_error"}}`, http.StatusUnauthorized)
 			return
 		}

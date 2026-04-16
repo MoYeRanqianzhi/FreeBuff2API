@@ -345,4 +345,3 @@ auth:
 	t.Fatalf("watcher did not pick up change: model=%s size=%d",
 		r.Current().Upstream.DefaultModel, pool.Size())
 }
-

@@ -12,8 +12,8 @@ import (
 type ctxKey string
 
 const (
-	ctxKeyDownstreamToken  ctxKey = "downstream_token"
-	ctxKeyForceOpenRouter  ctxKey = "force_openrouter"
+	ctxKeyDownstreamToken ctxKey = "downstream_token"
+	ctxKeyForceOpenRouter ctxKey = "force_openrouter"
 )
 
 func withMiddleware(h http.Handler, reloader *Reloader) http.Handler {

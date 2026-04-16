@@ -139,4 +139,3 @@ func writeKeyStatus(w http.ResponseWriter, pool *KeyPool) {
 	b, _ := json.MarshalIndent(out, "", "  ")
 	fmt.Fprintln(w, string(b))
 }
-

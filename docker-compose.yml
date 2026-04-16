@@ -12,6 +12,8 @@ services:
       - "127.0.0.1:28666:8080"
       - "172.17.0.1:28666:8080"
     environment:
+      # 支持单 key 或多 key（逗号 / 分号 / 换行分隔），请求级 round-robin
+      # 例: FREEBUFF_API_KEY="key1,key2,key3"
       FREEBUFF_API_KEY: ${FREEBUFF_API_KEY}
       FREEBUFF_BASE_URL: ${FREEBUFF_BASE_URL:-https://www.codebuff.com}
       LISTEN_ADDR: ":8080"

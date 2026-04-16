@@ -38,6 +38,10 @@ func main() {
 		log.Printf("FreeBuff2API listening on %s", cfg.ListenAddr)
 		log.Printf("Upstream: %s", cfg.FreebuffBaseURL)
 		log.Printf("Default model: %s | Cost mode: %s", cfg.DefaultModel, cfg.CostMode)
+		log.Printf("Upstream API keys: %d (round-robin)", len(cfg.FreebuffAPIKeys))
+		for i, k := range cfg.FreebuffAPIKeys {
+			log.Printf("  key[%d] = %s", i, fingerprint(k))
+		}
 		if cfg.APIKey != "" {
 			log.Print("API key authentication: enabled")
 		}

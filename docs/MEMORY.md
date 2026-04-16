@@ -6,6 +6,7 @@
 - [流式传输与模型配置](memory/streaming-models.md) - SSE 流式协议 + 模型 ID 映射
 - [v0.1.0 测试报告](memory/test-report-v0.1.0.md) - 真实请求性能数据 (CN/normal)
 - [US 节点部署报告](memory/deployment-us-v0.1.1.md) - **FREE 模式 US 节点可用性 + 性能**
+- [多账号轮询](memory/multi-account-rotation.md) - v0.2.0 多账号 round-robin 负载均衡设计
 
 ## 生产部署
 - 主机: `remote3` (Los Angeles, US, 38.55.179.54)
@@ -21,6 +22,7 @@
 - 2026-04-17: 后端 URL 修正为 `https://www.codebuff.com`（apex 会 307 重定向）
 - 2026-04-17: `COST_MODE` 默认改为 `normal`，避免中国区 FREE 模式被拦截（需要 BYOK 或 credits）
 - 2026-04-17: **模型列表补全** —— codebuff backend 对 `model` 字段透传 OpenRouter，不做白名单校验；原 `models.go` 静态列表只到 4.1 世代，缺 `claude-opus-4.6/4.5`、`sonnet-4.6/4.5`、`haiku-4.5`、`gpt-5.3`、`gemini-3.x`、qwen3、kimi-k2.5、glm-4.7 等。已按上游 `agent-definition.ts` 的 `ModelName` union + `claude-oauth.ts` 的 OAuth 映射全量补齐
+- 2026-04-17: **多账号轮询（v0.2.0）** —— `FREEBUFF_API_KEY` 支持逗号/分号/换行分隔多 key；`KeyPool` 用原子计数器做请求级 round-robin；一个请求的 `startAgentRun` + `chat/completions` 绑定同一 key（runId 按账号归属）；日志用指纹脱敏
 
 ## 实测性能（v0.1.0）
 - TTFT: 2.2 ~ 3.2s（含 runId 注册 ~700ms）

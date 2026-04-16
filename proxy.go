@@ -15,12 +15,14 @@ import (
 type ProxyHandler struct {
 	cfg    *Config
 	client *http.Client
+	keys   *KeyPool
 }
 
 func NewProxyHandler(cfg *Config) *ProxyHandler {
 	return &ProxyHandler{
 		cfg:    cfg,
 		client: &http.Client{},
+		keys:   NewKeyPool(cfg.FreebuffAPIKeys),
 	}
 }
 
@@ -47,9 +49,12 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req["model"] = p.cfg.DefaultModel
 	}
 
-	runID, err := p.startAgentRun(r.Context())
+	upstreamKey, keyIdx := p.keys.Next()
+	log.Printf("→ upstream key[%d]=%s", keyIdx, fingerprint(upstreamKey))
+
+	runID, err := p.startAgentRun(r.Context(), upstreamKey)
 	if err != nil {
-		log.Printf("startAgentRun error: %v", err)
+		log.Printf("startAgentRun error (key[%d]=%s): %v", keyIdx, fingerprint(upstreamKey), err)
 		http.Error(w, fmt.Sprintf(`{"error":{"message":"Failed to register agent run: %s","type":"upstream_error"}}`, err.Error()), http.StatusBadGateway)
 		return
 	}
@@ -75,13 +80,13 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	upstream.Header.Set("Authorization", "Bearer "+p.cfg.FreebuffAPIKey)
+	upstream.Header.Set("Authorization", "Bearer "+upstreamKey)
 	upstream.Header.Set("Content-Type", "application/json")
 	upstream.Header.Set("User-Agent", "freebuff2api/1.0")
 
 	resp, err := p.client.Do(upstream)
 	if err != nil {
-		log.Printf("upstream error: %v", err)
+		log.Printf("upstream error (key[%d]=%s): %v", keyIdx, fingerprint(upstreamKey), err)
 		http.Error(w, fmt.Sprintf(`{"error":{"message":"Upstream error: %s","type":"server_error"}}`, err.Error()), http.StatusBadGateway)
 		return
 	}
@@ -147,13 +152,13 @@ func (p *ProxyHandler) handleNonStream(w http.ResponseWriter, resp *http.Respons
 	io.Copy(w, resp.Body)
 }
 
-func (p *ProxyHandler) startAgentRun(ctx context.Context) (string, error) {
+func (p *ProxyHandler) startAgentRun(ctx context.Context, apiKey string) (string, error) {
 	body := []byte(`{"action":"START","agentId":"base2","ancestorRunIds":[]}`)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.FreebuffBaseURL+"/api/v1/agent-runs", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+p.cfg.FreebuffAPIKey)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "freebuff2api/1.0")
 

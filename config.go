@@ -24,8 +24,9 @@ type Config struct {
 type ServerConfig struct {
 	// ListenAddr is the host:port the HTTP server binds to. Default: ":8080".
 	ListenAddr string `yaml:"listen"`
-	// APIKey guards client access to /v1/* endpoints; empty disables the check.
-	APIKey string `yaml:"api_key"`
+	// APIKeys is the list of client Bearer tokens accepted by /v1/* endpoints.
+	// Empty list disables downstream auth (unless OpenRouter fallback needs it).
+	APIKeys []string `yaml:"api_keys"`
 }
 
 type UpstreamConfig struct {
@@ -35,6 +36,24 @@ type UpstreamConfig struct {
 	CostMode string `yaml:"cost_mode"`
 	// DefaultModel used when a request omits the model field.
 	DefaultModel string `yaml:"default_model"`
+	// OpenRouter configures the sk-or-* fallback path.
+	OpenRouter OpenRouterConfig `yaml:"openrouter"`
+}
+
+type OpenRouterConfig struct {
+	// BaseURL of the OpenRouter API. Default: "https://openrouter.ai/api/v1".
+	BaseURL string `yaml:"base_url"`
+	// Enabled toggles the fallback path. Default: true (pointer so "unset" vs "false" are distinguishable).
+	// When false, sk-or-* tokens are not accepted and FreeBuff outages are not fallen back on.
+	Enabled *bool `yaml:"enabled"`
+}
+
+// OpenRouterEnabled resolves the tri-state pointer to bool, defaulting to true.
+func (c OpenRouterConfig) IsEnabled() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
 }
 
 type AuthConfig struct {
@@ -101,6 +120,10 @@ func (c *Config) applyDefaults() {
 	if c.Upstream.DefaultModel == "" {
 		c.Upstream.DefaultModel = "anthropic/claude-sonnet-4"
 	}
+	if c.Upstream.OpenRouter.BaseURL == "" {
+		c.Upstream.OpenRouter.BaseURL = "https://openrouter.ai/api/v1"
+	}
+	c.Upstream.OpenRouter.BaseURL = strings.TrimRight(c.Upstream.OpenRouter.BaseURL, "/")
 	if c.Auth.Dir == "" {
 		c.Auth.Dir = "auths"
 	}
@@ -117,10 +140,14 @@ func (c *Config) applyDefaults() {
 		c.Logging.Level = "info"
 	}
 
-	// Dedup inline api_keys so reload is idempotent.
-	seen := make(map[string]struct{}, len(c.Auth.APIKeys))
-	out := c.Auth.APIKeys[:0]
-	for _, k := range c.Auth.APIKeys {
+	c.Auth.APIKeys = dedupStrings(c.Auth.APIKeys)
+	c.Server.APIKeys = dedupStrings(c.Server.APIKeys)
+}
+
+func dedupStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := in[:0]
+	for _, k := range in {
 		k = strings.TrimSpace(k)
 		if k == "" {
 			continue
@@ -131,7 +158,7 @@ func (c *Config) applyDefaults() {
 		seen[k] = struct{}{}
 		out = append(out, k)
 	}
-	c.Auth.APIKeys = out
+	return out
 }
 
 // Validate surfaces errors only when the config is so broken the server can't
@@ -140,6 +167,12 @@ func (c *Config) applyDefaults() {
 func (c *Config) Validate() error {
 	if c.Upstream.CostMode != "free" && c.Upstream.CostMode != "normal" {
 		return fmt.Errorf("upstream.cost_mode must be \"free\" or \"normal\", got %q", c.Upstream.CostMode)
+	}
+	if c.Upstream.OpenRouter.IsEnabled() {
+		u := c.Upstream.OpenRouter.BaseURL
+		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			return fmt.Errorf("upstream.openrouter.base_url must start with http:// or https://, got %q", u)
+		}
 	}
 	return nil
 }

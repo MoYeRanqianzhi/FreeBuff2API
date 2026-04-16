@@ -53,7 +53,8 @@ func TestLoadConfigFullYAML(t *testing.T) {
 	writeFile(t, path, `
 server:
   listen: ":9090"
-  api_key: "client-secret"
+  api_keys:
+    - "client-secret"
 upstream:
   base_url: "https://example.com/"
   cost_mode: "normal"
@@ -75,7 +76,7 @@ logging:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.ListenAddr != ":9090" || cfg.Server.APIKey != "client-secret" {
+	if cfg.Server.ListenAddr != ":9090" || len(cfg.Server.APIKeys) != 1 || cfg.Server.APIKeys[0] != "client-secret" {
 		t.Errorf("server: %+v", cfg.Server)
 	}
 	if cfg.Upstream.BaseURL != "https://example.com" {
@@ -107,6 +108,81 @@ func TestLoadConfigMissingFileFails(t *testing.T) {
 func TestLoadConfigEmptyPathFails(t *testing.T) {
 	if _, err := LoadConfig(""); err == nil {
 		t.Fatal("expected error for empty config path")
+	}
+}
+
+func TestLoadConfigAPIKeysList(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	writeFile(t, path, `
+server:
+  api_keys:
+    - "k1"
+    - "k2"
+    - "k1"
+    - ""
+auth:
+  api_keys: ["tok-1"]
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Server.APIKeys) != 2 || cfg.Server.APIKeys[0] != "k1" || cfg.Server.APIKeys[1] != "k2" {
+		t.Fatalf("dedup failed: %+v", cfg.Server.APIKeys)
+	}
+}
+
+func TestLoadConfigOpenRouterDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	writeFile(t, path, `
+auth:
+  api_keys: ["tok-1"]
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Upstream.OpenRouter.IsEnabled() {
+		t.Fatal("openrouter should default to enabled")
+	}
+	if cfg.Upstream.OpenRouter.BaseURL != "https://openrouter.ai/api/v1" {
+		t.Fatalf("openrouter base_url default: %s", cfg.Upstream.OpenRouter.BaseURL)
+	}
+}
+
+func TestLoadConfigOpenRouterDisable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	writeFile(t, path, `
+upstream:
+  openrouter:
+    enabled: false
+auth:
+  api_keys: ["tok-1"]
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Upstream.OpenRouter.IsEnabled() {
+		t.Fatal("openrouter should be disabled when enabled: false")
+	}
+}
+
+func TestLoadConfigOpenRouterInvalidURL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	writeFile(t, path, `
+upstream:
+  openrouter:
+    base_url: "not-a-url"
+auth:
+  api_keys: ["tok-1"]
+`)
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("expected validation error for non-http openrouter base_url")
 	}
 }
 

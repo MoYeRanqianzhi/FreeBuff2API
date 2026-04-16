@@ -41,6 +41,14 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
+	// Force-OpenRouter path: client Bearer matched sk-or- and was not in the api_keys list.
+	if force, _ := r.Context().Value(ctxKeyForceOpenRouter).(bool); force {
+		tok, _ := r.Context().Value(ctxKeyDownstreamToken).(string)
+		log.Printf("→ OpenRouter (forced, token=%s)", fingerprint(tok))
+		forwardToOpenRouter(w, r, body, p.client, cfg, tok)
+		return
+	}
+
 	var req map[string]any
 	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, `{"error":{"message":"Invalid JSON","type":"invalid_request_error"}}`, http.StatusBadRequest)
@@ -51,8 +59,18 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req["model"] = cfg.Upstream.DefaultModel
 	}
 
+	// downstreamToken is the client-presented Bearer; used to tentatively fall back to
+	// OpenRouter if FreeBuff fails AND the token itself is an sk-or- key.
+	downstreamToken, _ := r.Context().Value(ctxKeyDownstreamToken).(string)
+	canFallback := cfg.Upstream.OpenRouter.IsEnabled() && IsOpenRouterKey(downstreamToken)
+
 	upstreamKey, keyIdx := p.keys.Next()
 	if upstreamKey == "" {
+		if canFallback {
+			log.Printf("→ OpenRouter (FreeBuff pool empty, fallback token=%s)", fingerprint(downstreamToken))
+			forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
+			return
+		}
 		http.Error(w, `{"error":{"message":"No upstream API keys available","type":"server_error"}}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -62,6 +80,11 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		p.keys.MarkFailure(keyIdx)
 		log.Printf("startAgentRun error (key[%d]=%s): %v", keyIdx, fingerprint(upstreamKey), err)
+		if canFallback {
+			log.Printf("→ OpenRouter (startAgentRun failed, fallback token=%s)", fingerprint(downstreamToken))
+			forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
+			return
+		}
 		http.Error(w, fmt.Sprintf(`{"error":{"message":"Failed to register agent run: %s","type":"upstream_error"}}`, err.Error()), http.StatusBadGateway)
 		return
 	}
@@ -95,6 +118,11 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		p.keys.MarkFailure(keyIdx)
 		log.Printf("upstream error (key[%d]=%s): %v", keyIdx, fingerprint(upstreamKey), err)
+		if canFallback {
+			log.Printf("→ OpenRouter (upstream network error, fallback token=%s)", fingerprint(downstreamToken))
+			forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
+			return
+		}
 		http.Error(w, fmt.Sprintf(`{"error":{"message":"Upstream error: %s","type":"server_error"}}`, err.Error()), http.StatusBadGateway)
 		return
 	}
@@ -108,6 +136,14 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.keys.MarkFailure(keyIdx)
 		log.Printf("upstream status %d on key[%d]=%s — marked failure",
 			resp.StatusCode, keyIdx, fingerprint(upstreamKey))
+		// 5xx gateway-ish failures are eligible for OpenRouter fallback.
+		if canFallback && (resp.StatusCode == http.StatusBadGateway ||
+			resp.StatusCode == http.StatusServiceUnavailable ||
+			resp.StatusCode == http.StatusGatewayTimeout) {
+			log.Printf("→ OpenRouter (upstream %d, fallback token=%s)", resp.StatusCode, fingerprint(downstreamToken))
+			forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
+			return
+		}
 	} else if resp.StatusCode < 400 {
 		p.keys.MarkSuccess(keyIdx)
 	}

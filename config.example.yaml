@@ -10,9 +10,13 @@ server:
   # HTTP 监听地址；默认 ":8080"
   listen: ":8080"
 
-  # 客户端访问 /v1/* 时需要携带的 Bearer Token；留空表示不启用客户端鉴权
-  # api_key: "sk-your-downstream-guard-key"
-  api_key: ""
+  # 客户端访问 /v1/* 时接受的 Bearer Token 列表；留空 [] 表示不启用下游鉴权。
+  # 支持多 key，方便团队共享同一实例：
+  # api_keys:
+  #   - "sk-team-alice"
+  #   - "sk-team-bob"
+  # 当 token 本身是 sk-or-* 格式的 OpenRouter key 时，FreeBuff 全部失败会自动兜底到 OpenRouter。
+  api_keys: []
 
 upstream:
   # FreeBuff / codebuff 后端；默认 "https://www.codebuff.com"
@@ -23,6 +27,15 @@ upstream:
 
   # 当请求未携带 model 字段时的默认模型
   default_model: "anthropic/claude-sonnet-4"
+
+  # OpenRouter 兜底：FreeBuff 本质是 openrouter 代理，直接兜底到官方可避免服务中断。
+  # 行为矩阵：
+  #   - 客户端 Bearer 匹配 sk-or-* 且不在 server.api_keys → 直接转发 OpenRouter（force fallback）
+  #   - 客户端 Bearer 在 api_keys 中，且本身符合 sk-or-* → 先走 FreeBuff，失败再兜底 OpenRouter
+  #   - enabled: false → 完全禁用，sk-or-* 会被 401 拒绝
+  openrouter:
+    base_url: "https://openrouter.ai/api/v1"
+    enabled: true
 
 auth:
   # ── 多账号密钥来源 ──

@@ -8,6 +8,7 @@
 - [US 节点部署报告](memory/deployment-us-v0.1.1.md) - **FREE 模式 US 节点可用性 + 性能**
 - [多账号轮询](memory/multi-account-rotation.md) - v0.2.0 多账号 round-robin 负载均衡设计
 - [YAML 配置热加载](memory/config-hot-reload.md) - v0.5.0 config.yaml + fsnotify 实时生效
+- [OpenRouter 兜底](memory/openrouter-fallback.md) - v0.6.0 多下游 key + sk-or-* 兜底转发
 
 ## 生产部署
 - 主机: `remote3` (Los Angeles, US, 38.55.179.54)
@@ -27,6 +28,7 @@
 - 2026-04-17: **熔断 + 热加载（v0.4.0）** —— 连续 3 次失败熔断，12h 后自动恢复；`auths/*.json` 目录放 codebuff `credentials.json`（读取 `authToken`），默认 15s 扫描一次热加载；`/status/keys` 端点查看健康状况
 - 2026-04-17: **YAML 配置热加载（v0.5.0）** —— 参考 `router-for-me/CLIProxyAPI`，引入 `config.yaml` 作为单一事实来源（server/upstream/auth/breaker/logging），fsnotify + 15s 轮询兜底实现秒级热加载；`-config` CLI 参数；Reloader 保留熔断状态 + 活 `Current()` 读取，middleware/proxy 运行时读配置，无需重启
 - 2026-04-17: **移除 env 兼容（v0.5.1）** —— 彻底清理环境变量支持，config.yaml 成为唯一事实来源；missing/empty path 启动直接 fatal，避免 env+yaml 两套配置混淆
+- 2026-04-17: **下游多 key + OpenRouter 兜底（v0.6.0）** —— `server.api_key` (string) 升级为 `server.api_keys` ([]string)，**不保留**单值兼容；新增 `upstream.openrouter` 段（默认 enabled=true, base_url=https://openrouter.ai/api/v1）；客户端 Bearer 若匹配 `^sk-or-[a-zA-Z0-9_\-]{20,}$` 且不在 `api_keys` → 直接转发 OpenRouter；若在列表中且本身是 sk-or- 格式 → FreeBuff 全部失败时兜底 OpenRouter。详见 `memory/openrouter-fallback.md`
 
 ## 实测性能（v0.1.0）
 - TTFT: 2.2 ~ 3.2s（含 runId 注册 ~700ms）

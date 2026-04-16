@@ -1,11 +1,19 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"runtime/debug"
 	"strings"
 	"time"
+)
+
+type ctxKey string
+
+const (
+	ctxKeyDownstreamToken  ctxKey = "downstream_token"
+	ctxKeyForceOpenRouter  ctxKey = "force_openrouter"
 )
 
 func withMiddleware(h http.Handler, reloader *Reloader) http.Handler {
@@ -37,26 +45,65 @@ func logging(next http.Handler) http.Handler {
 
 // authGuard reads the client API key at request time so live config reloads
 // take effect immediately (no process restart required).
+//
+// Matrix:
+//   - expected list empty AND openrouter disabled → no-op pass-through
+//   - expected list empty AND openrouter enabled  → accept sk-or-* as force-fallback, else pass
+//   - token in expected list                     → accept, stash token in ctx
+//   - token matches sk-or- AND openrouter enabled → accept, mark force-fallback
+//   - otherwise                                  → 401
 func authGuard(next http.Handler, reloader *Reloader) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		expected := reloader.Current().Server.APIKey
-		if expected == "" {
+		cfg := reloader.Current()
+		expected := cfg.Server.APIKeys
+		orEnabled := cfg.Upstream.OpenRouter.IsEnabled()
+
+		auth := r.Header.Get("Authorization")
+		token := ""
+		if strings.HasPrefix(auth, "Bearer ") {
+			token = strings.TrimPrefix(auth, "Bearer ")
+		}
+
+		if len(expected) == 0 && !orEnabled {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		auth := r.Header.Get("Authorization")
-		token := strings.TrimPrefix(auth, "Bearer ")
-		if token == "" || token == auth {
+		if token == "" {
+			if len(expected) == 0 {
+				// No downstream auth configured but OR is on: pass through; proxy will
+				// use FreeBuff only (no sk-or token available for fallback).
+				next.ServeHTTP(w, r)
+				return
+			}
 			http.Error(w, `{"error":{"message":"Missing API key","type":"authentication_error"}}`, http.StatusUnauthorized)
 			return
 		}
-		if token != expected {
-			http.Error(w, `{"error":{"message":"Invalid API key","type":"authentication_error"}}`, http.StatusUnauthorized)
+
+		if containsString(expected, token) {
+			ctx := context.WithValue(r.Context(), ctxKeyDownstreamToken, token)
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-		next.ServeHTTP(w, r)
+
+		if orEnabled && IsOpenRouterKey(token) {
+			ctx := context.WithValue(r.Context(), ctxKeyDownstreamToken, token)
+			ctx = context.WithValue(ctx, ctxKeyForceOpenRouter, true)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
+		http.Error(w, `{"error":{"message":"Invalid API key","type":"authentication_error"}}`, http.StatusUnauthorized)
 	})
+}
+
+func containsString(list []string, v string) bool {
+	for _, s := range list {
+		if s == v {
+			return true
+		}
+	}
+	return false
 }
 
 func recovery(next http.Handler) http.Handler {

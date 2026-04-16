@@ -26,3 +26,4 @@
 - [x] 2026-04-17: **熔断 + 热加载（v0.4.0）** —— 12h 冷却熔断 + auths/ 动态目录
 - [x] 2026-04-17: **YAML 配置（v0.5.0）** —— config.yaml + fsnotify 秒级热加载
 - [x] 2026-04-17: **移除 env 兼容（v0.5.1）** —— YAML 成为唯一配置来源
+- [x] 2026-04-17: **下游多 key + OpenRouter 兜底（v0.6.0）** —— `server.api_keys` 列表 + `upstream.openrouter` 段；sk-or-* 自动识别与 FreeBuff 失败兜底

@@ -74,8 +74,15 @@ func main() {
 		for _, e := range pool.Snapshot() {
 			log.Printf("  %s  %s", fingerprint(e.Key), e.Label)
 		}
-		if cfg.Server.APIKey != "" {
-			log.Print("Client API key authentication: enabled")
+		if n := len(cfg.Server.APIKeys); n > 0 {
+			log.Printf("Client API key authentication: enabled (%d key(s))", n)
+		} else {
+			log.Print("Client API key authentication: disabled")
+		}
+		if cfg.Upstream.OpenRouter.IsEnabled() {
+			log.Printf("OpenRouter fallback: enabled (base_url=%s)", cfg.Upstream.OpenRouter.BaseURL)
+		} else {
+			log.Print("OpenRouter fallback: disabled")
 		}
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)

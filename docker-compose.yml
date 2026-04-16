@@ -1,0 +1,33 @@
+services:
+  freebuff2api:
+    build: .
+    image: freebuff2api:latest
+    container_name: freebuff2api
+    restart: unless-stopped
+    # Bind to host loopback + docker0 bridge gateway:
+    #   - 127.0.0.1:28666 → host processes
+    #   - 172.17.0.1:28666 → any container (via its default gateway)
+    # External internet cannot reach either interface.
+    ports:
+      - "127.0.0.1:28666:8080"
+      - "172.17.0.1:28666:8080"
+    environment:
+      FREEBUFF_API_KEY: ${FREEBUFF_API_KEY}
+      FREEBUFF_BASE_URL: ${FREEBUFF_BASE_URL:-https://www.codebuff.com}
+      LISTEN_ADDR: ":8080"
+      COST_MODE: ${COST_MODE:-free}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-anthropic/claude-sonnet-4}
+      API_KEY: ${API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks:
+      - freebuff-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+networks:
+  freebuff-net:
+    name: freebuff-net
+    driver: bridge

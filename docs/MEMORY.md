@@ -4,7 +4,15 @@
 - [架构说明](memory/architecture.md) - 项目架构与核心设计
 - [API 协议研究](memory/api-protocol.md) - FreeBuff 后端 API 完整协议
 - [流式传输与模型配置](memory/streaming-models.md) - SSE 流式协议 + 模型 ID 映射
-- [v0.1.0 测试报告](memory/test-report-v0.1.0.md) - 真实请求性能数据
+- [v0.1.0 测试报告](memory/test-report-v0.1.0.md) - 真实请求性能数据 (CN/normal)
+- [US 节点部署报告](memory/deployment-us-v0.1.1.md) - **FREE 模式 US 节点可用性 + 性能**
+
+## 生产部署
+- 主机: `remote3` (Los Angeles, US, 38.55.179.54)
+- 路径: `~/m/freebuff2api/`
+- 内网端口: `28666`（绑定 127.0.0.1 + 172.17.0.1，外部阻断）
+- Docker 网络: `freebuff-net`
+- FREE 模式已打通，`cost=0, is_byok=true`
 
 ## 关键决策
 - 2026-04-16: 选择 OpenAI 格式直通反代（非 Anthropic 转换），因 FreeBuff 后端本身就是 OpenAI Chat Completions 兼容

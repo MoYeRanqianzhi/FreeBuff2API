@@ -3,14 +3,13 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
-
-	"freebuff2api/uid"
 )
 
 type ProxyHandler struct {
@@ -48,8 +47,15 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req["model"] = p.cfg.DefaultModel
 	}
 
+	runID, err := p.startAgentRun(r.Context())
+	if err != nil {
+		log.Printf("startAgentRun error: %v", err)
+		http.Error(w, fmt.Sprintf(`{"error":{"message":"Failed to register agent run: %s","type":"upstream_error"}}`, err.Error()), http.StatusBadGateway)
+		return
+	}
+
 	req["codebuff_metadata"] = map[string]any{
-		"run_id":    uid.New(),
+		"run_id":    runID,
 		"client_id": "freebuff2api",
 		"cost_mode": p.cfg.CostMode,
 		"n":         1,
@@ -139,4 +145,37 @@ func (p *ProxyHandler) handleNonStream(w http.ResponseWriter, resp *http.Respons
 	}
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
+}
+
+func (p *ProxyHandler) startAgentRun(ctx context.Context) (string, error) {
+	body := []byte(`{"action":"START","agentId":"base2","ancestorRunIds":[]}`)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.FreebuffBaseURL+"/api/v1/agent-runs", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.cfg.FreebuffAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "freebuff2api/1.0")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("status %d: %s", resp.StatusCode, string(data))
+	}
+
+	var result struct {
+		RunID string `json:"runId"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return "", err
+	}
+	if result.RunID == "" {
+		return "", fmt.Errorf("empty runId in response: %s", string(data))
+	}
+	return result.RunID, nil
 }

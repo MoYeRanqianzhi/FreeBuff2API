@@ -1,0 +1,12 @@
+{
+  "model": "google/gemini-2.5-flash",
+  "messages": [{"role": "user", "content": "hi"}],
+  "stream": false,
+  "max_tokens": 50,
+  "codebuff_metadata": {
+    "run_id": "fe060908-1c83-4e24-96ff-04465e4463f0",
+    "client_id": "test",
+    "cost_mode": "normal",
+    "n": 1
+  }
+}

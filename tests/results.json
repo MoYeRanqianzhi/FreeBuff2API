@@ -1,0 +1,51 @@
+[
+  {
+    "ok": false,
+    "label": "nonstream#1 gemini-flash short",
+    "model": "google/gemini-2.5-flash",
+    "error": "HTTP 403",
+    "body": "{\"error\":\"free_mode_unavailable\",\"message\":\"Free mode is not available in your country.\"}"
+  },
+  {
+    "ok": false,
+    "label": "nonstream#2 gemini-flash short",
+    "model": "google/gemini-2.5-flash",
+    "error": "HTTP 403",
+    "body": "{\"error\":\"free_mode_unavailable\",\"message\":\"Free mode is not available in your country.\"}"
+  },
+  {
+    "ok": false,
+    "label": "stream short google/gemini-2.5-flash",
+    "model": "google/gemini-2.5-flash",
+    "error": "HTTP 403",
+    "body": "{\"error\":\"free_mode_unavailable\",\"message\":\"Free mode is not available in your country.\"}"
+  },
+  {
+    "ok": false,
+    "label": "stream short anthropic/claude-3.5-haiku-20241022",
+    "model": "anthropic/claude-3.5-haiku-20241022",
+    "error": "HTTP 403",
+    "body": "{\"error\":\"free_mode_unavailable\",\"message\":\"Free mode is not available in your country.\"}"
+  },
+  {
+    "ok": false,
+    "label": "stream short anthropic/claude-sonnet-4",
+    "model": "anthropic/claude-sonnet-4",
+    "error": "HTTP 403",
+    "body": "{\"error\":\"free_mode_unavailable\",\"message\":\"Free mode is not available in your country.\"}"
+  },
+  {
+    "ok": false,
+    "label": "stream medium google/gemini-2.5-flash",
+    "model": "google/gemini-2.5-flash",
+    "error": "HTTP 403",
+    "body": "{\"error\":\"free_mode_unavailable\",\"message\":\"Free mode is not available in your country.\"}"
+  },
+  {
+    "ok": false,
+    "label": "stream medium anthropic/claude-3.5-haiku-20241022",
+    "model": "anthropic/claude-3.5-haiku-20241022",
+    "error": "HTTP 403",
+    "body": "{\"error\":\"free_mode_unavailable\",\"message\":\"Free mode is not available in your country.\"}"
+  }
+]

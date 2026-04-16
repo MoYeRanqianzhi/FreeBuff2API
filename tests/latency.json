@@ -1,0 +1,48 @@
+{
+  "health": {
+    "stats": {
+      "n": 20,
+      "min_ms": 1.01,
+      "max_ms": 88.28,
+      "mean_ms": 18.6,
+      "median_ms": 15.81,
+      "stdev_ms": 17.24
+    },
+    "body": "{\"status\":\"ok\"}"
+  },
+  "models": {
+    "stats": {
+      "n": 10,
+      "min_ms": 0.84,
+      "max_ms": 25.52,
+      "mean_ms": 13.19,
+      "median_ms": 15.38,
+      "stdev_ms": 9.05
+    },
+    "body_preview": "{\"object\":\"list\",\"data\":[{\"id\":\"anthropic/claude-sonnet-4\",\"object\":\"model\",\"created\":1776356841,\"owned_by\":\"anthropic\"},{\"id\":\"anthropic/claude-4-sonnet-20250522\",\"object\":\"model\",\"created\":177635684"
+  },
+  "chat_nonstream_blocked": {
+    "status": 403,
+    "stats": {
+      "n": 5,
+      "min_ms": 899.77,
+      "max_ms": 1228.38,
+      "mean_ms": 992.56,
+      "median_ms": 934.36,
+      "stdev_ms": 134.1
+    },
+    "body": "{\"error\":\"free_mode_unavailable\",\"message\":\"Free mode is not available in your country.\"}"
+  },
+  "chat_stream_blocked": {
+    "status": 403,
+    "stats": {
+      "n": 5,
+      "min_ms": 911.47,
+      "max_ms": 1211.19,
+      "mean_ms": 973.23,
+      "median_ms": 913.24,
+      "stdev_ms": 133.05
+    },
+    "body": "{\"error\":\"free_mode_unavailable\",\"message\":\"Free mode is not available in your country.\"}"
+  }
+}

@@ -18,7 +18,7 @@ type Config struct {
 
 func LoadConfig() (*Config, error) {
 	cfg := &Config{
-		FreebuffBaseURL: envOr("FREEBUFF_BASE_URL", "https://codebuff.com"),
+		FreebuffBaseURL: envOr("FREEBUFF_BASE_URL", "https://www.codebuff.com"),
 		ListenAddr:      envOr("LISTEN_ADDR", ":8080"),
 		APIKey:          os.Getenv("API_KEY"),
 		DefaultModel:    envOr("DEFAULT_MODEL", "anthropic/claude-sonnet-4"),

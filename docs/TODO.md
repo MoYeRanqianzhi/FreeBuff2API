@@ -1,13 +1,21 @@
 # FreeBuff2API TODO
 
-## 待办
-- [ ] 添加 YAML 配置文件支持（当前仅环境变量）
+## P0（影响可用性）
+- [ ] **runId 池化**: 预热 runId 池，消除每请求 ~700ms 开销
+- [ ] 支持客户端通过 header 覆盖 `cost_mode`（如 `X-Freebuff-Cost-Mode: free`）
+- [ ] 动态模型列表（部分 Haiku 等型号 404）
+
+## P1
+- [ ] 添加 YAML 配置文件支持
 - [ ] 添加请求重试逻辑（408/429/5xx）
-- [ ] 添加 Prometheus metrics 端点
-- [ ] 添加 rate limiting
-- [ ] 端到端测试（需要有效的 FreeBuff API key）
+- [ ] Prometheus metrics 端点
+- [ ] Rate limiting
+- [ ] 启动时后端连通性自检
 
 ## 已完成
 - [x] 2026-04-16: 项目初始化 + Go 反代核心实现
 - [x] 2026-04-16: FreeBuff API 协议研究
 - [x] 2026-04-16: 流式传输协议研究
+- [x] 2026-04-17: 修正 runId 必须预注册的架构缺陷
+- [x] 2026-04-17: 修正后端 URL（apex -> www）
+- [x] 2026-04-17: 端到端真实请求测试 + 性能报告

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -65,70 +64,27 @@ type LoggingConfig struct {
 const DefaultConfigPath = "config.yaml"
 
 // LoadConfig reads a YAML config file from the given path and applies defaults.
-// If the path is empty, it falls back to env variables (legacy mode).
+// The file must exist; missing or unreadable config is a fatal error.
 func LoadConfig(path string) (*Config, error) {
-	cfg := &Config{}
-
-	if path != "" {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				// File missing is acceptable: callers may supply everything via env.
-				// We return an empty config that defaults + env fill in downstream.
-			} else {
-				return nil, fmt.Errorf("read %s: %w", path, err)
-			}
-		} else {
-			if err := yaml.Unmarshal(data, cfg); err != nil {
-				return nil, fmt.Errorf("parse %s: %w", path, err)
-			}
-		}
+	if path == "" {
+		return nil, fmt.Errorf("config path is required")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	cfg.applyEnvOverrides()
+	cfg := &Config{}
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+
 	cfg.applyDefaults()
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	return cfg, nil
-}
-
-// applyEnvOverrides lets env variables win over config file values for ops
-// conveniences (e.g. setting API keys via docker-compose env without editing
-// a mounted file). Applied before defaults so empties don't overwrite YAML.
-func (c *Config) applyEnvOverrides() {
-	if v := os.Getenv("LISTEN_ADDR"); v != "" {
-		c.Server.ListenAddr = v
-	}
-	if v := os.Getenv("API_KEY"); v != "" {
-		c.Server.APIKey = v
-	}
-	if v := os.Getenv("FREEBUFF_BASE_URL"); v != "" {
-		c.Upstream.BaseURL = v
-	}
-	if v := os.Getenv("COST_MODE"); v != "" {
-		c.Upstream.CostMode = v
-	}
-	if v := os.Getenv("DEFAULT_MODEL"); v != "" {
-		c.Upstream.DefaultModel = v
-	}
-	if v := os.Getenv("FREEBUFF_API_KEY"); v != "" {
-		c.Auth.APIKeys = append(c.Auth.APIKeys, parseKeys(v)...)
-	} else if v := os.Getenv("FREEBUFF_API_KEYS"); v != "" {
-		c.Auth.APIKeys = append(c.Auth.APIKeys, parseKeys(v)...)
-	}
-	if v := os.Getenv("AUTHS_DIR"); v != "" {
-		c.Auth.Dir = v
-	}
-	if v := os.Getenv("AUTHS_WATCH_INTERVAL"); v != "" {
-		if d, err := parseDurationFlexible(v); err == nil {
-			c.Auth.WatchInterval = d
-		}
-	}
-	if v := os.Getenv("LOG_LEVEL"); v != "" {
-		c.Logging.Level = strings.ToLower(v)
-	}
 }
 
 func (c *Config) applyDefaults() {
@@ -186,43 +142,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("upstream.cost_mode must be \"free\" or \"normal\", got %q", c.Upstream.CostMode)
 	}
 	return nil
-}
-
-// parseKeys tolerates comma/semicolon/newline separators and dedups.
-// Kept for env-variable parsing (YAML users put one key per list item).
-func parseKeys(raw string) []string {
-	if raw == "" {
-		return nil
-	}
-	replacer := strings.NewReplacer(",", "\n", ";", "\n", "\r", "\n")
-	normalized := replacer.Replace(raw)
-	seen := make(map[string]struct{})
-	out := make([]string, 0, 4)
-	for _, line := range strings.Split(normalized, "\n") {
-		k := strings.TrimSpace(line)
-		if k == "" {
-			continue
-		}
-		if _, dup := seen[k]; dup {
-			continue
-		}
-		seen[k] = struct{}{}
-		out = append(out, k)
-	}
-	return out
-}
-
-// parseDurationFlexible accepts both Go durations ("15s", "12h") and bare seconds ("15").
-func parseDurationFlexible(v string) (time.Duration, error) {
-	if d, err := time.ParseDuration(v); err == nil {
-		return d, nil
-	}
-	// try bare seconds
-	var n int
-	if _, err := fmt.Sscanf(v, "%d", &n); err == nil {
-		return time.Duration(n) * time.Second, nil
-	}
-	return 0, fmt.Errorf("invalid duration %q", v)
 }
 
 func fingerprint(key string) string {

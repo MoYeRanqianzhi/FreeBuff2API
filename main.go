@@ -14,8 +14,7 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", envOrDefault("CONFIG_PATH", DefaultConfigPath),
-		"path to YAML config (default: ./config.yaml; set to empty string for env-only legacy mode)")
+	configPath := flag.String("config", DefaultConfigPath, "path to YAML config (default: ./config.yaml)")
 	flag.Parse()
 
 	cfg, err := LoadConfig(*configPath)
@@ -134,9 +133,3 @@ func writeKeyStatus(w http.ResponseWriter, pool *KeyPool) {
 	fmt.Fprintln(w, string(b))
 }
 
-func envOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}

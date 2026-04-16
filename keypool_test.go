@@ -8,32 +8,6 @@ import (
 	"time"
 )
 
-func TestParseKeys(t *testing.T) {
-	cases := []struct {
-		raw  string
-		want []string
-	}{
-		{"", nil},
-		{"k1", []string{"k1"}},
-		{"k1,k2,k3", []string{"k1", "k2", "k3"}},
-		{"k1;k2", []string{"k1", "k2"}},
-		{"k1\nk2\nk3", []string{"k1", "k2", "k3"}},
-		{" k1 , k2 ,, k3 ", []string{"k1", "k2", "k3"}},
-		{"k1,k2,k1", []string{"k1", "k2"}},
-	}
-	for _, c := range cases {
-		got := parseKeys(c.raw)
-		if len(got) != len(c.want) {
-			t.Fatalf("parseKeys(%q) len=%d want=%d (%v)", c.raw, len(got), len(c.want), got)
-		}
-		for i := range got {
-			if got[i] != c.want[i] {
-				t.Fatalf("parseKeys(%q)[%d]=%q want %q", c.raw, i, got[i], c.want[i])
-			}
-		}
-	}
-}
-
 func TestKeyPoolRoundRobin(t *testing.T) {
 	p := NewKeyPool([]string{"a", "b", "c"})
 	want := []string{"a", "b", "c", "a", "b", "c", "a"}

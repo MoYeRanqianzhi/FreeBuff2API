@@ -11,14 +11,9 @@ services:
     ports:
       - "127.0.0.1:28666:8080"
       - "172.17.0.1:28666:8080"
-    # Config hot-reloaded via fsnotify — edit config.yaml in place to apply.
+    # All configuration lives in config.yaml; edit it in place and fsnotify
+    # hot-reloads within ~200ms. Live tokens go under ./auths/*.json.
     command: ["-config", "/app/config.yaml"]
-    environment:
-      # Env vars override config.yaml values (legacy-friendly; leave empty to
-      # let config.yaml own everything).
-      FREEBUFF_API_KEY: ${FREEBUFF_API_KEY:-}
-      API_KEY: ${API_KEY:-}
-      LOG_LEVEL: ${LOG_LEVEL:-}
     volumes:
       - ./config.yaml:/app/config.yaml
       - ./auths:/app/auths:ro

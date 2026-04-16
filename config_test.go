@@ -98,31 +98,15 @@ logging:
 	}
 }
 
-func TestLoadConfigMissingFileUsesEnv(t *testing.T) {
-	t.Setenv("FREEBUFF_API_KEY", "env-key")
-	cfg, err := LoadConfig("/nonexistent/path/here.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Auth.APIKeys) != 1 || cfg.Auth.APIKeys[0] != "env-key" {
-		t.Fatalf("env fallback failed: %v", cfg.Auth.APIKeys)
+func TestLoadConfigMissingFileFails(t *testing.T) {
+	if _, err := LoadConfig("/nonexistent/path/here.yaml"); err == nil {
+		t.Fatal("expected error for missing config file")
 	}
 }
 
-func TestLoadConfigEnvOverridesYAML(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	writeFile(t, path, `
-upstream:
-  cost_mode: "free"
-`)
-	t.Setenv("COST_MODE", "normal")
-	cfg, err := LoadConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Upstream.CostMode != "normal" {
-		t.Fatalf("env override failed: %s", cfg.Upstream.CostMode)
+func TestLoadConfigEmptyPathFails(t *testing.T) {
+	if _, err := LoadConfig(""); err == nil {
+		t.Fatal("expected error for empty config path")
 	}
 }
 

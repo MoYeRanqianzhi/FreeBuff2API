@@ -1,0 +1,19 @@
+# Binaries
+freebuff2api
+freebuff2api.exe
+
+# Environment
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+/tmp/

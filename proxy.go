@@ -1,0 +1,142 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"strings"
+
+	"freebuff2api/uid"
+)
+
+type ProxyHandler struct {
+	cfg    *Config
+	client *http.Client
+}
+
+func NewProxyHandler(cfg *Config) *ProxyHandler {
+	return &ProxyHandler{
+		cfg:    cfg,
+		client: &http.Client{},
+	}
+}
+
+func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":{"message":"Method not allowed","type":"invalid_request_error"}}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"error":{"message":"Failed to read request body","type":"invalid_request_error"}}`, http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var req map[string]any
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, `{"error":{"message":"Invalid JSON","type":"invalid_request_error"}}`, http.StatusBadRequest)
+		return
+	}
+
+	if _, ok := req["model"]; !ok || req["model"] == "" {
+		req["model"] = p.cfg.DefaultModel
+	}
+
+	req["codebuff_metadata"] = map[string]any{
+		"run_id":    uid.New(),
+		"client_id": "freebuff2api",
+		"cost_mode": p.cfg.CostMode,
+		"n":         1,
+	}
+	req["usage"] = map[string]any{"include": true}
+
+	modified, err := json.Marshal(req)
+	if err != nil {
+		http.Error(w, `{"error":{"message":"Failed to encode request","type":"server_error"}}`, http.StatusInternalServerError)
+		return
+	}
+
+	targetURL := p.cfg.FreebuffBaseURL + "/api/v1/chat/completions"
+	upstream, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(modified))
+	if err != nil {
+		http.Error(w, `{"error":{"message":"Failed to create upstream request","type":"server_error"}}`, http.StatusInternalServerError)
+		return
+	}
+
+	upstream.Header.Set("Authorization", "Bearer "+p.cfg.FreebuffAPIKey)
+	upstream.Header.Set("Content-Type", "application/json")
+	upstream.Header.Set("User-Agent", "freebuff2api/1.0")
+
+	resp, err := p.client.Do(upstream)
+	if err != nil {
+		log.Printf("upstream error: %v", err)
+		http.Error(w, fmt.Sprintf(`{"error":{"message":"Upstream error: %s","type":"server_error"}}`, err.Error()), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	isStream := false
+	if s, ok := req["stream"]; ok {
+		if b, ok := s.(bool); ok {
+			isStream = b
+		}
+	}
+
+	if isStream && resp.StatusCode == http.StatusOK {
+		p.handleStream(w, resp)
+	} else {
+		p.handleNonStream(w, resp)
+	}
+}
+
+func (p *ProxyHandler) handleStream(w http.ResponseWriter, resp *http.Response) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, `{"error":{"message":"Streaming not supported","type":"server_error"}}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if line == "" {
+			continue
+		}
+
+		fmt.Fprintf(w, "%s\n\n", line)
+		flusher.Flush()
+
+		if strings.TrimSpace(line) == "data: [DONE]" {
+			break
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("stream read error: %v", err)
+	}
+}
+
+func (p *ProxyHandler) handleNonStream(w http.ResponseWriter, resp *http.Response) {
+	for k, vs := range resp.Header {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}

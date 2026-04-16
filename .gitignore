@@ -18,3 +18,8 @@ Thumbs.db
 
 # Temp
 /tmp/
+
+# Credentials — live tokens must never be committed.
+auths/*.json
+!auths/README.md
+!auths/.gitkeep

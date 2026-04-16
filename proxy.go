@@ -18,11 +18,11 @@ type ProxyHandler struct {
 	keys   *KeyPool
 }
 
-func NewProxyHandler(cfg *Config) *ProxyHandler {
+func NewProxyHandler(cfg *Config, pool *KeyPool) *ProxyHandler {
 	return &ProxyHandler{
 		cfg:    cfg,
 		client: &http.Client{},
-		keys:   NewKeyPool(cfg.FreebuffAPIKeys),
+		keys:   pool,
 	}
 }
 
@@ -50,10 +50,15 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	upstreamKey, keyIdx := p.keys.Next()
+	if upstreamKey == "" {
+		http.Error(w, `{"error":{"message":"No upstream API keys available","type":"server_error"}}`, http.StatusServiceUnavailable)
+		return
+	}
 	log.Printf("→ upstream key[%d]=%s", keyIdx, fingerprint(upstreamKey))
 
 	runID, err := p.startAgentRun(r.Context(), upstreamKey)
 	if err != nil {
+		p.keys.MarkFailure(keyIdx)
 		log.Printf("startAgentRun error (key[%d]=%s): %v", keyIdx, fingerprint(upstreamKey), err)
 		http.Error(w, fmt.Sprintf(`{"error":{"message":"Failed to register agent run: %s","type":"upstream_error"}}`, err.Error()), http.StatusBadGateway)
 		return
@@ -86,11 +91,25 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := p.client.Do(upstream)
 	if err != nil {
+		p.keys.MarkFailure(keyIdx)
 		log.Printf("upstream error (key[%d]=%s): %v", keyIdx, fingerprint(upstreamKey), err)
 		http.Error(w, fmt.Sprintf(`{"error":{"message":"Upstream error: %s","type":"server_error"}}`, err.Error()), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
+
+	// Count auth / quota failures against the key; transient 5xx too.
+	if resp.StatusCode == http.StatusUnauthorized ||
+		resp.StatusCode == http.StatusForbidden ||
+		resp.StatusCode == http.StatusPaymentRequired ||
+		resp.StatusCode == http.StatusTooManyRequests ||
+		resp.StatusCode >= 500 {
+		p.keys.MarkFailure(keyIdx)
+		log.Printf("upstream status %d on key[%d]=%s — marked failure",
+			resp.StatusCode, keyIdx, fingerprint(upstreamKey))
+	} else if resp.StatusCode < 400 {
+		p.keys.MarkSuccess(keyIdx)
+	}
 
 	isStream := false
 	if s, ok := req["stream"]; ok {

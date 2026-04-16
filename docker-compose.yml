@@ -12,15 +12,20 @@ services:
       - "127.0.0.1:28666:8080"
       - "172.17.0.1:28666:8080"
     environment:
-      # 支持单 key 或多 key（逗号 / 分号 / 换行分隔），请求级 round-robin
+      # 方式 1：单 key 或多 key（逗号 / 分号 / 换行分隔），请求级 round-robin
       # 例: FREEBUFF_API_KEY="key1,key2,key3"
-      FREEBUFF_API_KEY: ${FREEBUFF_API_KEY}
+      FREEBUFF_API_KEY: ${FREEBUFF_API_KEY:-}
+      # 方式 2：auths/*.json（FreeBuff credentials.json 格式），运行时可热加载
+      AUTHS_DIR: ${AUTHS_DIR:-/app/auths}
+      AUTHS_WATCH_INTERVAL: ${AUTHS_WATCH_INTERVAL:-15s}
       FREEBUFF_BASE_URL: ${FREEBUFF_BASE_URL:-https://www.codebuff.com}
       LISTEN_ADDR: ":8080"
       COST_MODE: ${COST_MODE:-free}
       DEFAULT_MODEL: ${DEFAULT_MODEL:-anthropic/claude-sonnet-4}
       API_KEY: ${API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./auths:/app/auths:ro
     networks:
       - freebuff-net
     healthcheck:

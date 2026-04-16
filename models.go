@@ -39,9 +39,12 @@ var supportedModels = []Model{
 	{ID: "anthropic/claude-3-opus-20240229", OwnedBy: "anthropic"},
 
 	// OpenAI
+	{ID: "openai/gpt-5.4", OwnedBy: "openai"},
+	{ID: "openai/gpt-5.4-codex", OwnedBy: "openai"},
 	{ID: "openai/gpt-5.3", OwnedBy: "openai"},
 	{ID: "openai/gpt-5.3-codex", OwnedBy: "openai"},
 	{ID: "openai/gpt-5.2", OwnedBy: "openai"},
+	{ID: "openai/gpt-5.2-codex", OwnedBy: "openai"},
 	{ID: "openai/gpt-5.1", OwnedBy: "openai"},
 	{ID: "openai/gpt-5.1-chat", OwnedBy: "openai"},
 	{ID: "openai/gpt-5-mini", OwnedBy: "openai"},

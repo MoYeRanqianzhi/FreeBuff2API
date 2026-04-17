@@ -22,7 +22,7 @@ func main() {
 		log.Fatalf("config error: %v", err)
 	}
 
-	keys, labels, err := LoadKeySources(cfg.Auth.APIKeys, cfg.Auth.Dir)
+	keys, labels, donorKeys, err := LoadKeySources(cfg.Auth.APIKeys, cfg.Auth.Dir)
 	if err != nil {
 		log.Fatalf("load keys error: %v", err)
 	}
@@ -30,7 +30,7 @@ func main() {
 		log.Printf("WARNING: no FreeBuff API keys found — /v1/* will 503 until keys are added via admin UI or auths/ directory")
 	}
 
-	pool := NewKeyPoolWithLabels(keys, labels)
+	pool := NewKeyPoolWithDonors(keys, labels, donorKeys)
 	pool.SetBreakerTuning(cfg.Auth.Breaker.Threshold, cfg.Auth.Breaker.Cooldown)
 
 	limiters := NewLimiterSet(cfg.Limits)
@@ -66,7 +66,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         cfg.Server.ListenAddr,
-		Handler:      withMiddleware(mux, reloader),
+		Handler:      withMiddleware(mux, reloader, pool),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 5 * time.Minute,
 		IdleTimeout:  120 * time.Second,

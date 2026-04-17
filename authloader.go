@@ -18,6 +18,10 @@ import (
 
 // credentialFile mirrors codebuff's common/src/util/credentials.ts userSchema.
 // Only authToken is required; other fields are captured for diagnostics.
+//
+// DonorKey is a FreeBuff-specific extension: when set, any /v1/* request that
+// presents this string as its client Bearer token is pinned to the matching
+// upstream account (no cross-account fallback). Empty or missing = no donor key.
 type credentialFile struct {
 	ID              string  `json:"id"`
 	Email           string  `json:"email"`
@@ -25,12 +29,16 @@ type credentialFile struct {
 	AuthToken       string  `json:"authToken"`
 	FingerprintID   string  `json:"fingerprintId"`
 	FingerprintHash string  `json:"fingerprintHash"`
+	DonorKey        string  `json:"donorKey,omitempty"`
 }
 
 // LoadKeySources combines inline api_keys from the config with files discovered
 // under auths/. Source order: config.yaml api_keys first, then auths/*.json
 // sorted by filename. Duplicates across sources are dropped (first wins).
-func LoadKeySources(inline []string, authsDir string) (keys, labels []string, err error) {
+//
+// donorKeys is returned parallel to keys/labels: inline keys always get "" (no
+// donor binding), file-loaded keys inherit the credentialFile.DonorKey value.
+func LoadKeySources(inline []string, authsDir string) (keys, labels, donorKeys []string, err error) {
 	seen := make(map[string]struct{})
 
 	for _, k := range inline {
@@ -44,11 +52,12 @@ func LoadKeySources(inline []string, authsDir string) (keys, labels []string, er
 		seen[k] = struct{}{}
 		keys = append(keys, k)
 		labels = append(labels, "config.yaml")
+		donorKeys = append(donorKeys, "")
 	}
 
-	fileKeys, fileLabels, ferr := loadAuthsDir(authsDir)
+	fileKeys, fileLabels, fileDonors, ferr := loadAuthsDir(authsDir)
 	if ferr != nil && !errors.Is(ferr, os.ErrNotExist) {
-		return nil, nil, ferr
+		return nil, nil, nil, ferr
 	}
 	for i, k := range fileKeys {
 		if _, dup := seen[k]; dup {
@@ -57,17 +66,18 @@ func LoadKeySources(inline []string, authsDir string) (keys, labels []string, er
 		seen[k] = struct{}{}
 		keys = append(keys, k)
 		labels = append(labels, fileLabels[i])
+		donorKeys = append(donorKeys, fileDonors[i])
 	}
-	return keys, labels, nil
+	return keys, labels, donorKeys, nil
 }
 
-func loadAuthsDir(dir string) (keys, labels []string, err error) {
+func loadAuthsDir(dir string) (keys, labels, donorKeys []string, err error) {
 	if dir == "" {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -99,9 +109,14 @@ func loadAuthsDir(dir string) (keys, labels []string, err error) {
 			continue
 		}
 		keys = append(keys, tok)
-		labels = append(labels, "auths/"+name)
+		// Label is the bare file stem so the admin UI can round-trip it to the
+		// DELETE endpoint (which resolves <dir>/<label>.json). Legacy loader
+		// used "auths/"+name which broke delete once the UI URL-encoded the
+		// slash.
+		labels = append(labels, strings.TrimSuffix(name, filepath.Ext(name)))
+		donorKeys = append(donorKeys, strings.TrimSpace(cred.DonorKey))
 	}
-	return keys, labels, nil
+	return keys, labels, donorKeys, nil
 }
 
 // DefaultAdminTokenPath is where the admin UI bearer token is read from.
@@ -210,14 +225,14 @@ func (r *Reloader) Reload(reason string) {
 		return
 	}
 
-	keys, labels, err := LoadKeySources(next.Auth.APIKeys, next.Auth.Dir)
+	keys, labels, donorKeys, err := LoadKeySources(next.Auth.APIKeys, next.Auth.Dir)
 	if err != nil {
 		log.Printf("reload (%s): key load failed — keeping previous pool: %v", reason, err)
 		// Still apply non-auth config changes below.
 	} else {
 		// Apply breaker tuning live.
 		r.pool.SetBreakerTuning(next.Auth.Breaker.Threshold, next.Auth.Breaker.Cooldown)
-		added, removed, kept := r.pool.Reload(keys, labels)
+		added, removed, kept := r.pool.Reload(keys, labels, donorKeys)
 		log.Printf("reload (%s): keys added=%d removed=%d kept=%d total=%d healthy=%d",
 			reason, added, removed, kept, r.pool.Size(), r.pool.HealthySize())
 	}

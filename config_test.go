@@ -256,8 +256,8 @@ auth:
 	if err != nil {
 		t.Fatal(err)
 	}
-	keys, labels, _ := LoadKeySources(cfg.Auth.APIKeys, cfg.Auth.Dir)
-	pool := NewKeyPoolWithLabels(keys, labels)
+	keys, labels, donors, _ := LoadKeySources(cfg.Auth.APIKeys, cfg.Auth.Dir)
+	pool := NewKeyPoolWithDonors(keys, labels, donors)
 	pool.SetBreakerTuning(cfg.Auth.Breaker.Threshold, cfg.Auth.Breaker.Cooldown)
 	r := NewReloader(cfgPath, cfg, pool, nil)
 

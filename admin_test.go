@@ -45,8 +45,8 @@ auth:
 	if err != nil {
 		t.Fatal(err)
 	}
-	keys, labels, _ := LoadKeySources(cfg.Auth.APIKeys, cfg.Auth.Dir)
-	pool := NewKeyPoolWithLabels(keys, labels)
+	keys, labels, donors, _ := LoadKeySources(cfg.Auth.APIKeys, cfg.Auth.Dir)
+	pool := NewKeyPoolWithDonors(keys, labels, donors)
 	reloader := NewReloader(cfgPath, cfg, pool, nil)
 	reloader.SetAdminTokenPath(tokPath)
 
@@ -217,7 +217,9 @@ func TestAdminTripAndReset(t *testing.T) {
 	}
 }
 
-func TestAdminConfigRedactsKeys(t *testing.T) {
+func TestAdminConfigReturnsRawKeys(t *testing.T) {
+	// Admin panel is token-gated, so keys are returned in the clear (matches
+	// CLIProxyAPI UX). Redaction was removed in v0.9.1.
 	srv, _, _, _ := newAdminTestServer(t, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/admin/api/config", nil)
@@ -227,7 +229,159 @@ func TestAdminConfigRedactsKeys(t *testing.T) {
 		t.Fatalf("get config got %d body=%s", rec.Code, rec.Body.String())
 	}
 	body, _ := io.ReadAll(rec.Result().Body)
-	if strings.Contains(string(body), "cb_live_testkey_000001") {
-		t.Fatalf("raw key leaked in redacted config: %s", string(body))
+	if !strings.Contains(string(body), "cb_live_testkey_000001") {
+		t.Fatalf("raw key should be visible to admin, got: %s", string(body))
+	}
+}
+
+// TestDeleteKeyWithNumericLabel guards against the v0.9.1 bug where a label
+// composed entirely of digits (e.g. the GitHub numeric login "1843865995")
+// could collide with the /keys/{idx}/{action} routing and return
+// "invalid index".
+func TestDeleteKeyWithNumericLabel(t *testing.T) {
+	srv, _, _, dir := newAdminTestServer(t, "")
+	// Drop a numeric-labelled credential into auths/.
+	numericLabel := "1843865995"
+	credPath := filepath.Join(dir, "auths", numericLabel+".json")
+	if err := os.MkdirAll(filepath.Dir(credPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(credPath, []byte(`{"authToken":"cb_live_num_0001"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/admin/api/keys/"+numericLabel, nil)
+	req.Header.Set("X-Admin-Token", "testadmin")
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete numeric label got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(credPath); !os.IsNotExist(err) {
+		t.Fatalf("credential file not removed: err=%v", err)
+	}
+}
+
+// TestAdminDonorGenerateAndClear exercises the POST/DELETE lifecycle of the
+// donor-key endpoint. The on-disk credential JSON must carry the new key
+// after POST, and lose it after DELETE.
+func TestAdminDonorGenerateAndClear(t *testing.T) {
+	srv, reloader, pool, dir := newAdminTestServer(t, "")
+	// Seed an alice.json so the label is routable.
+	credPath := filepath.Join(dir, "auths", "alice.json")
+	if err := os.WriteFile(credPath, []byte(`{"authToken":"cb_live_alice_00001"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reloader.Reload("seed")
+
+	// POST → generate a new donor key.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/keys/alice/donor", nil)
+	req.Header.Set("X-Admin-Token", "testadmin")
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		OK   bool           `json:"ok"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	donor, _ := resp.Data["donor_key"].(string)
+	if !strings.HasPrefix(donor, "fb_donor_") {
+		t.Fatalf("generated donor key lacks prefix: %q", donor)
+	}
+
+	// Disk should carry the donor key.
+	data, _ := os.ReadFile(credPath)
+	if !strings.Contains(string(data), donor) {
+		t.Fatalf("credential file missing donor key: %s", string(data))
+	}
+
+	// Pool should resolve it after the reload baked in.
+	if _, _, ok := pool.ResolveDonorKey(donor); !ok {
+		t.Fatal("pool did not pick up the new donor key after POST")
+	}
+
+	// DELETE → clear.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodDelete, "/admin/api/keys/alice/donor", nil)
+	req.Header.Set("X-Admin-Token", "testadmin")
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE got %d body=%s", rec.Code, rec.Body.String())
+	}
+	data, _ = os.ReadFile(credPath)
+	if strings.Contains(string(data), "donorKey") && strings.Contains(string(data), "fb_donor_") {
+		t.Fatalf("credential file still has donor key after DELETE: %s", string(data))
+	}
+	if _, _, ok := pool.ResolveDonorKey(donor); ok {
+		t.Fatal("pool still resolves cleared donor key")
+	}
+}
+
+// TestAdminDonorCustomValue verifies that POST with {"key":"..."} uses the
+// supplied value verbatim (lets operators rotate or set a human-memorable key).
+func TestAdminDonorCustomValue(t *testing.T) {
+	srv, _, _, dir := newAdminTestServer(t, "")
+	credPath := filepath.Join(dir, "auths", "bob.json")
+	if err := os.WriteFile(credPath, []byte(`{"authToken":"cb_live_bob_00001"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(map[string]string{"key": "fb_donor_custom_xyz"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/keys/bob/donor", bytes.NewReader(body))
+	req.Header.Set("X-Admin-Token", "testadmin")
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST custom got %d body=%s", rec.Code, rec.Body.String())
+	}
+	data, _ := os.ReadFile(credPath)
+	if !strings.Contains(string(data), "fb_donor_custom_xyz") {
+		t.Fatalf("custom key not persisted: %s", string(data))
+	}
+}
+
+// TestAdminStatusReturnsDonorKey verifies donor_key comes through /status.
+func TestAdminStatusReturnsDonorKey(t *testing.T) {
+	srv, _, pool, _ := newAdminTestServer(t, "")
+	// The seed config has one inline key (idx 0). SetDonorKey can't persist
+	// it to disk for inline keys, but it's good enough to verify the JSON shape.
+	pool.SetDonorKey(0, "fb_donor_seeded")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/status", nil)
+	req.Header.Set("X-Admin-Token", "testadmin")
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "fb_donor_seeded") {
+		t.Fatalf("donor_key missing from status body: %s", rec.Body.String())
+	}
+}
+
+// TestDeleteKeyToleratesTrailingSlash makes sure `DELETE /admin/api/keys/foo/`
+// is handled like `DELETE /admin/api/keys/foo` rather than misrouted to the
+// index-based endpoint.
+func TestDeleteKeyToleratesTrailingSlash(t *testing.T) {
+	srv, _, _, dir := newAdminTestServer(t, "")
+	credPath := filepath.Join(dir, "auths", "alice.json")
+	if err := os.MkdirAll(filepath.Dir(credPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(credPath, []byte(`{"authToken":"cb_live_alice_0001"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/admin/api/keys/alice/", nil)
+	req.Header.Set("X-Admin-Token", "testadmin")
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete w/ trailing slash got %d body=%s", rec.Code, rec.Body.String())
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,6 +35,7 @@ type KeyEntry struct {
 type KeyPool struct {
 	mu        sync.RWMutex
 	entries   []*KeyEntry
+	donors    []string // parallel to entries; "" = no donor key bound to this account
 	counter   uint64
 	threshold int
 	cooldown  time.Duration
@@ -48,17 +50,29 @@ func NewKeyPool(keys []string) *KeyPool {
 	for i := range keys {
 		labels[i] = "env"
 	}
-	p.Reload(keys, labels)
+	p.Reload(keys, labels, nil)
 	return p
 }
 
 // NewKeyPoolWithLabels constructs a pool preserving per-key labels.
+// donorKeys may be nil; when provided, its length must match keys.
 func NewKeyPoolWithLabels(keys, labels []string) *KeyPool {
 	p := &KeyPool{
 		threshold: DefaultBreakerThreshold,
 		cooldown:  DefaultBreakerCooldown,
 	}
-	p.Reload(keys, labels)
+	p.Reload(keys, labels, nil)
+	return p
+}
+
+// NewKeyPoolWithDonors is like NewKeyPoolWithLabels but also seeds donor keys.
+// Used by main at startup when authloader provides all three parallel arrays.
+func NewKeyPoolWithDonors(keys, labels, donorKeys []string) *KeyPool {
+	p := &KeyPool{
+		threshold: DefaultBreakerThreshold,
+		cooldown:  DefaultBreakerCooldown,
+	}
+	p.Reload(keys, labels, donorKeys)
 	return p
 }
 
@@ -225,7 +239,12 @@ func (p *KeyPool) MarkSuccess(idx int) {
 //
 // labels must be same length as keys (caller's contract). If mismatched, labels
 // are ignored and "reload" is used.
-func (p *KeyPool) Reload(keys, labels []string) (added, removed, kept int) {
+//
+// donorKeys may be nil (no donor data) or same length as keys; any other length
+// is ignored. When provided, the incoming donor key for a surviving entry
+// overwrites the in-memory value — disk truth wins, which prevents admin edits
+// and fsnotify reloads from drifting.
+func (p *KeyPool) Reload(keys, labels, donorKeys []string) (added, removed, kept int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -235,7 +254,9 @@ func (p *KeyPool) Reload(keys, labels []string) (added, removed, kept int) {
 	}
 
 	useLabels := len(labels) == len(keys)
+	useDonors := len(donorKeys) == len(keys)
 	next := make([]*KeyEntry, 0, len(keys))
+	nextDonors := make([]string, 0, len(keys))
 	seen := make(map[string]struct{}, len(keys))
 	for i, k := range keys {
 		if k == "" {
@@ -251,6 +272,10 @@ func (p *KeyPool) Reload(keys, labels []string) (added, removed, kept int) {
 		} else {
 			label = "reload"
 		}
+		var donor string
+		if useDonors {
+			donor = donorKeys[i]
+		}
 		if old, ok := prev[k]; ok {
 			old.Label = label
 			next = append(next, old)
@@ -259,6 +284,7 @@ func (p *KeyPool) Reload(keys, labels []string) (added, removed, kept int) {
 			next = append(next, &KeyEntry{Key: k, Label: label})
 			added++
 		}
+		nextDonors = append(nextDonors, donor)
 	}
 	for k := range prev {
 		if _, ok := seen[k]; !ok {
@@ -266,16 +292,90 @@ func (p *KeyPool) Reload(keys, labels []string) (added, removed, kept int) {
 		}
 	}
 
-	// Keep deterministic order: group by label then key for stable snapshots.
-	sort.SliceStable(next, func(i, j int) bool {
-		if next[i].Label != next[j].Label {
-			return next[i].Label < next[j].Label
+	// Keep deterministic order: group by label then key. Donor array must move
+	// with its entry, so sort in lock-step via an index permutation.
+	idx := make([]int, len(next))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool {
+		ea, eb := next[idx[a]], next[idx[b]]
+		if ea.Label != eb.Label {
+			return ea.Label < eb.Label
 		}
-		return next[i].Key < next[j].Key
+		return ea.Key < eb.Key
 	})
+	sortedEntries := make([]*KeyEntry, len(next))
+	sortedDonors := make([]string, len(next))
+	for i, j := range idx {
+		sortedEntries[i] = next[j]
+		sortedDonors[i] = nextDonors[j]
+	}
 
-	p.entries = next
+	p.entries = sortedEntries
+	p.donors = sortedDonors
 	return
+}
+
+// IsBroken reports whether the key at idx is currently circuit-broken.
+// Out-of-range idx returns false (so the caller's pin logic degrades into
+// "just try it and let the upstream fail").
+func (p *KeyPool) IsBroken(idx int) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if idx < 0 || idx >= len(p.entries) {
+		return false
+	}
+	return isBroken(p.entries[idx], time.Now())
+}
+
+// GetDonorKey returns the donor key bound to idx, or "" if none.
+func (p *KeyPool) GetDonorKey(idx int) string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if idx < 0 || idx >= len(p.donors) {
+		return ""
+	}
+	return p.donors[idx]
+}
+
+// SetDonorKey replaces the donor key at idx. "" clears it. Out-of-range is a
+// no-op. Note: this only updates memory; callers must also persist the change
+// to disk (via credentialFile.DonorKey) so hot-reloads don't revert it.
+func (p *KeyPool) SetDonorKey(idx int, donor string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if idx < 0 || idx >= len(p.donors) {
+		return
+	}
+	p.donors[idx] = strings.TrimSpace(donor)
+}
+
+// ResolveDonorKey searches for the upstream index bound to a donor key string.
+// Matching is exact (case-sensitive, no trimming — trim upstream if you need to).
+// Returns (idx, upstreamKey, true) on hit, or (-1, "", false) otherwise.
+func (p *KeyPool) ResolveDonorKey(donor string) (int, string, bool) {
+	if donor == "" {
+		return -1, "", false
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	for i, d := range p.donors {
+		if d == donor {
+			return i, p.entries[i].Key, true
+		}
+	}
+	return -1, "", false
+}
+
+// DonorSnapshot returns donor keys aligned to Snapshot() order. Intended for
+// admin status output; callers should not mutate the returned slice.
+func (p *KeyPool) DonorSnapshot() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	out := make([]string, len(p.donors))
+	copy(out, p.donors)
+	return out
 }
 
 func isBroken(e *KeyEntry, now time.Time) bool {

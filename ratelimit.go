@@ -60,6 +60,22 @@ func (b *bucket) setRPM(rpm int) {
 	}
 }
 
+// refund returns a previously-consumed token. Used when a request that
+// successfully took a token from the bucket did not actually reach the upstream
+// (e.g. startAgentRun failed, TCP error before any bytes sent). rpm==0 is a
+// no-op. The capacity cap is honoured so refunds cannot over-fill.
+func (b *bucket) refund() {
+	if b == nil || b.rpm == 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.tokens++
+	if b.tokens > float64(b.rpm) {
+		b.tokens = float64(b.rpm)
+	}
+}
+
 // LimiterSet holds one global bucket plus per-key and per-client-token buckets.
 //
 // Per-key and per-client buckets are lazily materialized on first use, so new
@@ -123,6 +139,24 @@ func (ls *LimiterSet) AccountAllow(upstreamKey string) bool {
 		ls.mu.Unlock()
 	}
 	return b.allow()
+}
+
+// AccountRefund returns a token that was taken by AccountAllow for upstreamKey.
+// Call this when the request did not actually hit the upstream account (e.g.
+// startAgentRun failed). Safe if no bucket exists yet (no-op).
+func (ls *LimiterSet) AccountRefund(upstreamKey string) {
+	if ls == nil || upstreamKey == "" {
+		return
+	}
+	ls.mu.RLock()
+	rpm := ls.accountRPM
+	if rpm == 0 {
+		ls.mu.RUnlock()
+		return
+	}
+	b := ls.accounts[upstreamKey]
+	ls.mu.RUnlock()
+	b.refund()
 }
 
 // ClientAllow reports whether the given client Bearer token has budget left.

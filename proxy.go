@@ -161,6 +161,9 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		runID, err := p.startAgentRun(r.Context(), cfg.Upstream.BaseURL, upstreamKey)
 		if err != nil {
 			p.keys.MarkFailure(keyIdx)
+			// Refund the account token we took via AccountAllow — this attempt
+			// never actually hit chat/completions on this key.
+			limits.AccountRefund(upstreamKey)
 			log.Printf("retry %d: startAgentRun key[%d]=%s failed: %v", attempt+1, keyIdx, fingerprint(upstreamKey), err)
 			lastStatus = http.StatusBadGateway
 			continue
@@ -193,6 +196,9 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp, err := p.client.Do(upstream)
 		if err != nil {
 			p.keys.MarkFailure(keyIdx)
+			// Network error before any response — the account wasn't actually
+			// billed for this attempt, so refund its rate token.
+			limits.AccountRefund(upstreamKey)
 			log.Printf("retry %d: upstream net err key[%d]=%s: %v", attempt+1, keyIdx, fingerprint(upstreamKey), err)
 			lastStatus = http.StatusBadGateway
 			continue
@@ -207,6 +213,8 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.Printf("retry %d: upstream status %d key[%d]=%s — trying next",
 				attempt+1, resp.StatusCode, keyIdx, fingerprint(upstreamKey))
 			lastStatus = resp.StatusCode
+			// Drain before close so the TCP connection can be reused.
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 			continue
 		}
@@ -240,15 +248,22 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pool was empty OR every account was rate-limited from the start.
+	// Nothing was tried: either the pool is empty, every account is rate-limited,
+	// or every account is circuit-broken.
 	if len(tried) == 0 {
 		if accountRateLimited {
 			writeSanitized(w, http.StatusTooManyRequests,
 				`{"error":{"message":"所有上游账号繁忙，请稍后重试","type":"rate_limited"}}`)
 			return
 		}
+		if p.keys.Size() == 0 {
+			writeSanitized(w, http.StatusServiceUnavailable,
+				`{"error":{"message":"号池无可用账号，请联系管理员添加上游账号","type":"pool_empty"}}`)
+			return
+		}
+		// Pool has keys but all are circuit-broken.
 		writeSanitized(w, http.StatusServiceUnavailable,
-			`{"error":{"message":"号池无可用账号，请联系管理员添加上游账号","type":"pool_empty"}}`)
+			`{"error":{"message":"所有上游账号均已熔断，请稍后重试","type":"pool_all_broken"}}`)
 		return
 	}
 

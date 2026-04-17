@@ -107,6 +107,53 @@ func TestLimiterSetReloadPrunes(t *testing.T) {
 	}
 }
 
+func TestAccountRefundRestoresToken(t *testing.T) {
+	ls := NewLimiterSet(LimitsConfig{AccountRPM: 1})
+	if !ls.AccountAllow("k1") {
+		t.Fatal("k1 first should succeed")
+	}
+	if ls.AccountAllow("k1") {
+		t.Fatal("k1 second should fail — bucket exhausted")
+	}
+	// Refund — the failed attempt didn't really hit the upstream.
+	ls.AccountRefund("k1")
+	if !ls.AccountAllow("k1") {
+		t.Fatal("after refund, k1 should have a token again")
+	}
+}
+
+func TestAccountRefundUnlimitedIsNoop(t *testing.T) {
+	ls := NewLimiterSet(LimitsConfig{AccountRPM: 0})
+	// Should not panic and should not do anything observable.
+	ls.AccountRefund("k1")
+	if !ls.AccountAllow("k1") {
+		t.Fatal("unlimited should always allow")
+	}
+}
+
+func TestAccountRefundUnknownKeyNoop(t *testing.T) {
+	ls := NewLimiterSet(LimitsConfig{AccountRPM: 5})
+	// Key never seen before; refund should silently do nothing.
+	ls.AccountRefund("never-seen")
+}
+
+func TestBucketRefundCapped(t *testing.T) {
+	b := newBucket(2)
+	// Starts full (2 tokens). Refund shouldn't overflow the cap.
+	b.refund()
+	b.refund()
+	// Can still only burst 2.
+	if !b.allow() {
+		t.Fatal("allow #1 should succeed")
+	}
+	if !b.allow() {
+		t.Fatal("allow #2 should succeed")
+	}
+	if b.allow() {
+		t.Fatal("allow #3 should fail — cap honoured on refund")
+	}
+}
+
 func TestLimiterSetNil(t *testing.T) {
 	var ls *LimiterSet
 	// Nil receiver should be safe and always allow (for deployments without

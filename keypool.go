@@ -120,6 +120,33 @@ func (p *KeyPool) Snapshot() []KeyEntry {
 	return out
 }
 
+// NextAvailable selects a key via round-robin, skipping broken ones and any
+// key for which filter(key, idx) returns false. Unlike Next, it does NOT fall
+// back to a broken key — if every candidate is filtered out, ok=false.
+//
+// filter=nil behaves the same as Next but without the "best-broken" fallback.
+func (p *KeyPool) NextAvailable(filter func(key string, idx int) bool) (string, int, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := len(p.entries)
+	if n == 0 {
+		return "", -1, false
+	}
+	now := time.Now()
+	for tries := 0; tries < n; tries++ {
+		idx := int((atomic.AddUint64(&p.counter, 1) - 1) % uint64(n))
+		e := p.entries[idx]
+		if isBroken(e, now) {
+			continue
+		}
+		if filter != nil && !filter(e.Key, idx) {
+			continue
+		}
+		return e.Key, idx, true
+	}
+	return "", -1, false
+}
+
 // Next selects a key via round-robin, skipping broken ones.
 // If every key is broken, falls back to the one whose cooldown expires soonest.
 // Returns ("", -1) only if the pool is empty.

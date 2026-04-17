@@ -94,106 +94,6 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	downstreamToken, _ := r.Context().Value(ctxKeyDownstreamToken).(string)
 	canFallback := cfg.Upstream.OpenRouter.IsEnabled() && IsOpenRouterKey(downstreamToken)
 
-	upstreamKey, keyIdx := p.keys.Next()
-	if upstreamKey == "" {
-		if canFallback {
-			log.Printf("→ OpenRouter (FreeBuff pool empty, fallback token=%s)", fingerprint(downstreamToken))
-			forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
-			return
-		}
-		writeSanitized(w, http.StatusServiceUnavailable,
-			`{"error":{"message":"号池无可用账号，请联系管理员添加上游账号","type":"pool_empty"}}`)
-		return
-	}
-	log.Printf("→ upstream key[%d]=%s", keyIdx, fingerprint(upstreamKey))
-
-	runID, err := p.startAgentRun(r.Context(), cfg.Upstream.BaseURL, upstreamKey)
-	if err != nil {
-		p.keys.MarkFailure(keyIdx)
-		log.Printf("startAgentRun error (key[%d]=%s): %v", keyIdx, fingerprint(upstreamKey), err)
-		if canFallback {
-			log.Printf("→ OpenRouter (startAgentRun failed, fallback token=%s)", fingerprint(downstreamToken))
-			forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
-			return
-		}
-		writeSanitized(w, http.StatusBadGateway,
-			`{"error":{"message":"上游服务异常，请稍后重试","type":"upstream_error"}}`)
-		return
-	}
-
-	req["codebuff_metadata"] = map[string]any{
-		"run_id":    runID,
-		"client_id": "freebuff2api",
-		"cost_mode": cfg.Upstream.CostMode,
-		"n":         1,
-	}
-	req["usage"] = map[string]any{"include": true}
-
-	modified, err := json.Marshal(req)
-	if err != nil {
-		http.Error(w, `{"error":{"message":"Failed to encode request","type":"server_error"}}`, http.StatusInternalServerError)
-		return
-	}
-
-	targetURL := cfg.Upstream.BaseURL + "/api/v1/chat/completions"
-	upstream, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(modified))
-	if err != nil {
-		http.Error(w, `{"error":{"message":"Failed to create upstream request","type":"server_error"}}`, http.StatusInternalServerError)
-		return
-	}
-
-	upstream.Header.Set("Authorization", "Bearer "+upstreamKey)
-	upstream.Header.Set("Content-Type", "application/json")
-	upstream.Header.Set("User-Agent", "freebuff2api/1.0")
-
-	resp, err := p.client.Do(upstream)
-	if err != nil {
-		p.keys.MarkFailure(keyIdx)
-		log.Printf("upstream error (key[%d]=%s): %v", keyIdx, fingerprint(upstreamKey), err)
-		if canFallback {
-			log.Printf("→ OpenRouter (upstream network error, fallback token=%s)", fingerprint(downstreamToken))
-			forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
-			return
-		}
-		writeSanitized(w, http.StatusBadGateway,
-			`{"error":{"message":"上游服务异常，请稍后重试","type":"upstream_error"}}`)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized ||
-		resp.StatusCode == http.StatusForbidden ||
-		resp.StatusCode == http.StatusPaymentRequired ||
-		resp.StatusCode == http.StatusTooManyRequests ||
-		resp.StatusCode >= 500 {
-		p.keys.MarkFailure(keyIdx)
-		log.Printf("upstream status %d on key[%d]=%s — marked failure",
-			resp.StatusCode, keyIdx, fingerprint(upstreamKey))
-		// 5xx gateway-ish failures are eligible for OpenRouter fallback.
-		if canFallback && (resp.StatusCode == http.StatusBadGateway ||
-			resp.StatusCode == http.StatusServiceUnavailable ||
-			resp.StatusCode == http.StatusGatewayTimeout) {
-			log.Printf("→ OpenRouter (upstream %d, fallback token=%s)", resp.StatusCode, fingerprint(downstreamToken))
-			forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
-			return
-		}
-		// No fallback — return a sanitized error instead of leaking upstream body.
-		status, sanitized := sanitizeUpstreamError(resp.StatusCode)
-		if sanitized != "" {
-			writeSanitized(w, status, sanitized)
-			return
-		}
-	} else if resp.StatusCode < 400 {
-		p.keys.MarkSuccess(keyIdx)
-	} else if resp.StatusCode == http.StatusBadRequest {
-		// 400 from upstream — hide the raw message but don't change status.
-		status, sanitized := sanitizeUpstreamError(resp.StatusCode)
-		if sanitized != "" {
-			writeSanitized(w, status, sanitized)
-			return
-		}
-	}
-
 	isStream := false
 	if s, ok := req["stream"]; ok {
 		if b, ok := s.(bool); ok {
@@ -201,11 +101,144 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if isStream && resp.StatusCode == http.StatusOK {
-		p.handleStream(w, resp)
-	} else {
-		p.handleNonStream(w, resp)
+	// Per-request retry loop across up to maxRetries distinct upstream keys.
+	// The loop handles empty pool, all-keys-tried, and fallback-on-exhaustion.
+	const maxRetriesCap = 3
+	healthy := p.keys.HealthySize()
+	maxRetries := maxRetriesCap
+	if healthy > 0 && healthy < maxRetries {
+		maxRetries = healthy
 	}
+	if maxRetries < 1 {
+		maxRetries = 1
+	}
+
+	tried := make(map[int]struct{}, maxRetries)
+	lastStatus := 0
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		upstreamKey, keyIdx, ok := p.keys.NextAvailable(func(_ string, idx int) bool {
+			_, seen := tried[idx]
+			return !seen
+		})
+		if !ok {
+			break
+		}
+		tried[keyIdx] = struct{}{}
+		log.Printf("→ upstream key[%d]=%s (attempt %d/%d)", keyIdx, fingerprint(upstreamKey), attempt+1, maxRetries)
+
+		runID, err := p.startAgentRun(r.Context(), cfg.Upstream.BaseURL, upstreamKey)
+		if err != nil {
+			p.keys.MarkFailure(keyIdx)
+			log.Printf("retry %d: startAgentRun key[%d]=%s failed: %v", attempt+1, keyIdx, fingerprint(upstreamKey), err)
+			lastStatus = http.StatusBadGateway
+			continue
+		}
+
+		req["codebuff_metadata"] = map[string]any{
+			"run_id":    runID,
+			"client_id": "freebuff2api",
+			"cost_mode": cfg.Upstream.CostMode,
+			"n":         1,
+		}
+		req["usage"] = map[string]any{"include": true}
+
+		modified, err := json.Marshal(req)
+		if err != nil {
+			http.Error(w, `{"error":{"message":"Failed to encode request","type":"server_error"}}`, http.StatusInternalServerError)
+			return
+		}
+
+		targetURL := cfg.Upstream.BaseURL + "/api/v1/chat/completions"
+		upstream, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(modified))
+		if err != nil {
+			http.Error(w, `{"error":{"message":"Failed to create upstream request","type":"server_error"}}`, http.StatusInternalServerError)
+			return
+		}
+		upstream.Header.Set("Authorization", "Bearer "+upstreamKey)
+		upstream.Header.Set("Content-Type", "application/json")
+		upstream.Header.Set("User-Agent", "freebuff2api/1.0")
+
+		resp, err := p.client.Do(upstream)
+		if err != nil {
+			p.keys.MarkFailure(keyIdx)
+			log.Printf("retry %d: upstream net err key[%d]=%s: %v", attempt+1, keyIdx, fingerprint(upstreamKey), err)
+			lastStatus = http.StatusBadGateway
+			continue
+		}
+
+		// Retryable upstream HTTP statuses: try the next key.
+		if isRetryableStatus(resp.StatusCode) {
+			if resp.StatusCode != http.StatusTooManyRequests {
+				// 429 doesn't mark failure (rate limit ≠ key invalid)
+				p.keys.MarkFailure(keyIdx)
+			}
+			log.Printf("retry %d: upstream status %d key[%d]=%s — trying next",
+				attempt+1, resp.StatusCode, keyIdx, fingerprint(upstreamKey))
+			lastStatus = resp.StatusCode
+			resp.Body.Close()
+			continue
+		}
+
+		// Non-retryable path (2xx success OR 400 bad request).
+		if resp.StatusCode < 400 {
+			p.keys.MarkSuccess(keyIdx)
+		}
+
+		if resp.StatusCode == http.StatusBadRequest {
+			resp.Body.Close()
+			writeSanitized(w, http.StatusBadRequest,
+				`{"error":{"message":"请求被上游拒绝","type":"invalid_request"}}`)
+			return
+		}
+
+		// 2xx success
+		if isStream && resp.StatusCode == http.StatusOK {
+			p.handleStream(w, resp)
+		} else {
+			p.handleNonStream(w, resp)
+		}
+		resp.Body.Close()
+		return
+	}
+
+	// All retries exhausted. If OpenRouter fallback is an option, use it.
+	if canFallback {
+		log.Printf("→ OpenRouter (all %d upstream retries failed, fallback token=%s)", len(tried), fingerprint(downstreamToken))
+		forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
+		return
+	}
+
+	// Pool was empty from the start?
+	if len(tried) == 0 {
+		writeSanitized(w, http.StatusServiceUnavailable,
+			`{"error":{"message":"号池无可用账号，请联系管理员添加上游账号","type":"pool_empty"}}`)
+		return
+	}
+
+	// Tried one or more keys, all failed — sanitize based on the last status.
+	status, sanitized := sanitizeUpstreamError(lastStatus)
+	if sanitized == "" {
+		status = http.StatusBadGateway
+		sanitized = `{"error":{"message":"上游服务异常，请稍后重试","type":"upstream_error"}}`
+	}
+	writeSanitized(w, status, sanitized)
+}
+
+// isRetryableStatus reports whether a response with this status should trigger
+// a retry on a different upstream key (401/402/403/429/5xx). 400 is not
+// retryable — a malformed request won't succeed on another account.
+func isRetryableStatus(status int) bool {
+	switch {
+	case status == http.StatusUnauthorized,
+		status == http.StatusPaymentRequired,
+		status == http.StatusForbidden,
+		status == http.StatusTooManyRequests:
+		return true
+	case status >= 500:
+		return true
+	}
+	return false
 }
 
 func (p *ProxyHandler) handleStream(w http.ResponseWriter, resp *http.Response) {

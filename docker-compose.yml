@@ -13,10 +13,13 @@ services:
       - "172.17.0.1:28666:8080"
     # All configuration lives in config.yaml; edit it in place and fsnotify
     # hot-reloads within ~200ms. Live tokens go under ./auths/*.json.
+    # token.key (optional): when present enables the admin UI at /admin/.
+    # auths/ is mounted read-write so the admin UI can add new credentials.
     command: ["-config", "/app/config.yaml"]
     volumes:
       - ./config.yaml:/app/config.yaml
-      - ./auths:/app/auths:ro
+      - ./auths:/app/auths
+      - ./token.key:/app/token.key:ro
     networks:
       - freebuff-net
     healthcheck:

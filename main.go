@@ -37,6 +37,8 @@ func main() {
 	reloader := NewReloader(*configPath, cfg, pool, nil)
 	proxy := NewProxyHandler(reloader, pool)
 
+	admin := NewAdminHandler(reloader, pool)
+
 	mux := http.NewServeMux()
 	mux.Handle("/v1/chat/completions", proxy)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -46,6 +48,13 @@ func main() {
 	mux.HandleFunc("/status/keys", func(w http.ResponseWriter, _ *http.Request) {
 		writeKeyStatus(w, pool)
 	})
+
+	// Admin UI + API. adminGuard returns 404 for every /admin/* path when
+	// token.key is missing, so this surface is invisible by default.
+	adminMux := http.NewServeMux()
+	admin.mount(adminMux)
+	adminMux.Handle("/admin/", http.StripPrefix("/admin/", adminStatic()))
+	mux.Handle("/admin/", admin.adminGuard(adminMux))
 
 	srv := &http.Server{
 		Addr:         cfg.Server.ListenAddr,
@@ -82,6 +91,11 @@ func main() {
 			log.Printf("OpenRouter fallback: enabled (base_url=%s)", cfg.Upstream.OpenRouter.BaseURL)
 		} else {
 			log.Print("OpenRouter fallback: disabled")
+		}
+		if reloader.AdminToken() != "" {
+			log.Printf("Admin UI: enabled at /admin/ (token.key=%s)", reloader.AdminTokenPath())
+		} else {
+			log.Printf("Admin UI: disabled (set %s to enable)", reloader.AdminTokenPath())
 		}
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)

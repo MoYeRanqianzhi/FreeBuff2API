@@ -27,3 +27,4 @@
 - [x] 2026-04-17: **移除 env 兼容（v0.5.1）** —— YAML 成为唯一配置来源
 - [x] 2026-04-17: **下游多 key + OpenRouter 兜底（v0.6.0）** —— `server.api_keys` 列表 + `upstream.openrouter` 段；sk-or-* 自动识别与 FreeBuff 失败兜底
 - [x] 2026-04-17: **移除 /v1/models 端点（v0.6.1）** —— 静态白名单会过期，与 OpenRouter 一致让客户端自己决定 model
+- [x] 2026-04-17: **Admin UI + REST API（v0.7.0）** —— token.key 鉴权，单文件 glassmorphism 前端（淡蓝青绿渐变），可热改 config + 增删 key + 手动熔断

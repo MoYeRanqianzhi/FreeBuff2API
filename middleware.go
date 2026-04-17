@@ -14,10 +14,19 @@ type ctxKey string
 const (
 	ctxKeyDownstreamToken ctxKey = "downstream_token"
 	ctxKeyForceOpenRouter ctxKey = "force_openrouter"
+	// ctxKeyPinnedKeyIdx is the KeyPool index the request is pinned to.
+	// Set by authGuard when a donor key is recognised. Presence means the
+	// proxy must NOT retry other keys.
+	ctxKeyPinnedKeyIdx   ctxKey = "pinned_key_idx"
+	ctxKeyPinnedUpstream ctxKey = "pinned_upstream_key"
 )
 
-func withMiddleware(h http.Handler, reloader *Reloader) http.Handler {
-	return recovery(cors(logging(authGuard(h, reloader))))
+// DonorKeyPrefix identifies a FreeBuff donor key in a client Bearer header.
+// Must be distinct from codebuff (`cb_live_`) and OpenRouter (`sk-or-`).
+const DonorKeyPrefix = "fb_donor_"
+
+func withMiddleware(h http.Handler, reloader *Reloader, pool *KeyPool) http.Handler {
+	return recovery(cors(logging(authGuard(h, reloader, pool))))
 }
 
 func cors(next http.Handler) http.Handler {
@@ -53,7 +62,7 @@ func logging(next http.Handler) http.Handler {
 //   - token in expected list                     → accept, stash token in ctx
 //   - token matches sk-or- AND openrouter enabled → accept, mark force-fallback
 //   - otherwise                                  → 401
-func authGuard(next http.Handler, reloader *Reloader) http.Handler {
+func authGuard(next http.Handler, reloader *Reloader, pool *KeyPool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Only /v1/* is protected by the downstream api_keys guard.
 		// /admin/*, /health, /status/keys have their own policies.
@@ -69,6 +78,21 @@ func authGuard(next http.Handler, reloader *Reloader) http.Handler {
 		token := ""
 		if strings.HasPrefix(auth, "Bearer ") {
 			token = strings.TrimPrefix(auth, "Bearer ")
+		}
+
+		// Donor-key branch: checked before server.api_keys so donor-holders can
+		// call /v1/* even when the operator runs an empty api_keys list.
+		if token != "" && strings.HasPrefix(token, DonorKeyPrefix) && pool != nil {
+			idx, upstreamKey, ok := pool.ResolveDonorKey(token)
+			if !ok {
+				http.Error(w, `{"error":{"message":"Invalid API key","type":"authentication_error"}}`, http.StatusUnauthorized)
+				return
+			}
+			ctx := context.WithValue(r.Context(), ctxKeyDownstreamToken, token)
+			ctx = context.WithValue(ctx, ctxKeyPinnedKeyIdx, idx)
+			ctx = context.WithValue(ctx, ctxKeyPinnedUpstream, upstreamKey)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
 		}
 
 		if len(expected) == 0 && !orEnabled {

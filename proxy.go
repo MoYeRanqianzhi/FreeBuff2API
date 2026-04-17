@@ -122,6 +122,15 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Donor-key pinned path: authGuard already resolved the donor to a specific
+	// KeyPool index. Strictly single-account — no cross-account retry, no
+	// OpenRouter fallback. Account rate-limited → 429; circuit-broken → 503.
+	if pinnedIdx, pinned := r.Context().Value(ctxKeyPinnedKeyIdx).(int); pinned {
+		pinnedKey, _ := r.Context().Value(ctxKeyPinnedUpstream).(string)
+		p.servePinned(w, r, req, cfg, pinnedIdx, pinnedKey, isStream)
+		return
+	}
+
 	// Per-request retry loop across up to maxRetries distinct upstream keys.
 	// The loop handles empty pool, all-keys-tried, and fallback-on-exhaustion.
 	const maxRetriesCap = 3
@@ -336,6 +345,109 @@ func (p *ProxyHandler) handleNonStream(w http.ResponseWriter, resp *http.Respons
 	}
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
+}
+
+// servePinned handles a donor-key request that MUST go through one specific
+// upstream account. It enforces per-account rate limit and breaker state before
+// attempting a single forward. On any upstream failure the caller receives a
+// sanitized error — we do not fall over to another account because donor keys
+// exist precisely to prevent that.
+func (p *ProxyHandler) servePinned(w http.ResponseWriter, r *http.Request, req map[string]any, cfg *Config, idx int, upstreamKey string, isStream bool) {
+	limits := p.limits()
+
+	if p.keys.IsBroken(idx) {
+		log.Printf("→ pinned key[%d]=%s is broken — returning 503", idx, fingerprint(upstreamKey))
+		writeSanitized(w, http.StatusServiceUnavailable,
+			`{"error":{"message":"您的绑定账号暂不可用，请稍后重试","type":"upstream_unavailable"}}`)
+		return
+	}
+
+	if !limits.AccountAllow(upstreamKey) {
+		log.Printf("→ pinned key[%d]=%s rate-limited — returning 429", idx, fingerprint(upstreamKey))
+		writeSanitized(w, http.StatusTooManyRequests,
+			`{"error":{"message":"您的绑定账号繁忙，请稍后重试","type":"rate_limited"}}`)
+		return
+	}
+
+	log.Printf("→ pinned upstream key[%d]=%s (donor-key request)", idx, fingerprint(upstreamKey))
+
+	runID, err := p.startAgentRun(r.Context(), cfg.Upstream.BaseURL, upstreamKey)
+	if err != nil {
+		p.keys.MarkFailure(idx)
+		limits.AccountRefund(upstreamKey)
+		log.Printf("pinned: startAgentRun key[%d]=%s failed: %v", idx, fingerprint(upstreamKey), err)
+		writeSanitized(w, http.StatusBadGateway,
+			`{"error":{"message":"上游服务异常，请稍后重试","type":"upstream_error"}}`)
+		return
+	}
+
+	req["codebuff_metadata"] = map[string]any{
+		"run_id":    runID,
+		"client_id": "freebuff2api",
+		"cost_mode": cfg.Upstream.CostMode,
+		"n":         1,
+	}
+	req["usage"] = map[string]any{"include": true}
+
+	modified, err := json.Marshal(req)
+	if err != nil {
+		http.Error(w, `{"error":{"message":"Failed to encode request","type":"server_error"}}`, http.StatusInternalServerError)
+		return
+	}
+
+	targetURL := cfg.Upstream.BaseURL + "/api/v1/chat/completions"
+	upstream, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(modified))
+	if err != nil {
+		http.Error(w, `{"error":{"message":"Failed to create upstream request","type":"server_error"}}`, http.StatusInternalServerError)
+		return
+	}
+	upstream.Header.Set("Authorization", "Bearer "+upstreamKey)
+	upstream.Header.Set("Content-Type", "application/json")
+	upstream.Header.Set("User-Agent", "freebuff2api/1.0")
+
+	resp, err := p.client.Do(upstream)
+	if err != nil {
+		p.keys.MarkFailure(idx)
+		limits.AccountRefund(upstreamKey)
+		log.Printf("pinned: upstream net err key[%d]=%s: %v", idx, fingerprint(upstreamKey), err)
+		writeSanitized(w, http.StatusBadGateway,
+			`{"error":{"message":"上游服务异常，请稍后重试","type":"upstream_error"}}`)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Retryable statuses are NOT retried — the whole point of pinning is to
+	// bind failure to the account. We still update breaker so admin can see
+	// the pinned account degrading.
+	if isRetryableStatus(resp.StatusCode) {
+		if resp.StatusCode != http.StatusTooManyRequests {
+			p.keys.MarkFailure(idx)
+		}
+		status, sanitized := sanitizeUpstreamError(resp.StatusCode)
+		if sanitized == "" {
+			status = http.StatusBadGateway
+			sanitized = `{"error":{"message":"上游服务异常，请稍后重试","type":"upstream_error"}}`
+		}
+		io.Copy(io.Discard, resp.Body)
+		writeSanitized(w, status, sanitized)
+		return
+	}
+
+	// Non-retryable path: either 2xx or 400.
+	if resp.StatusCode < 400 {
+		p.keys.MarkSuccess(idx)
+	}
+	if resp.StatusCode == http.StatusBadRequest {
+		writeSanitized(w, http.StatusBadRequest,
+			`{"error":{"message":"请求被上游拒绝","type":"invalid_request"}}`)
+		return
+	}
+
+	if isStream && resp.StatusCode == http.StatusOK {
+		p.handleStream(w, resp)
+	} else {
+		p.handleNonStream(w, resp)
+	}
 }
 
 func (p *ProxyHandler) startAgentRun(ctx context.Context, baseURL, apiKey string) (string, error) {

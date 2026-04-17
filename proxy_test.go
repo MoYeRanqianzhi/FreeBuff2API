@@ -210,6 +210,126 @@ func TestClientRPMRejects(t *testing.T) {
 	}
 }
 
+// firePinned runs a single request through the proxy with the pin context
+// values that authGuard would have injected for a donor key.
+func firePinned(t *testing.T, p *ProxyHandler, idx int, upstream string) *httptest.ResponseRecorder {
+	t.Helper()
+	body := `{"model":"m","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := context.WithValue(req.Context(), ctxKeyDownstreamToken, "fb_donor_test")
+	ctx = context.WithValue(ctx, ctxKeyPinnedKeyIdx, idx)
+	ctx = context.WithValue(ctx, ctxKeyPinnedUpstream, upstream)
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req.WithContext(ctx))
+	return rec
+}
+
+// TestProxyPinnedKeySuccess verifies a donor-key request hits only the pinned
+// upstream and never round-robins to another key.
+func TestProxyPinnedKeySuccess(t *testing.T) {
+	// mockUpstream accepts every request; we track which Authorization header was used.
+	var seenAuths []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seenAuths = append(seenAuths, r.Header.Get("Authorization"))
+		mu.Unlock()
+		if r.URL.Path == "/api/v1/agent-runs" {
+			io.WriteString(w, `{"runId":"r"}`)
+			return
+		}
+		io.WriteString(w, `{"id":"ok"}`)
+	}))
+	defer srv.Close()
+
+	p := buildTestProxy(t, srv.URL, []string{"k1", "k2", "k3"})
+	rec := firePinned(t, p, 1, "k2")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, a := range seenAuths {
+		if a != "Bearer k2" {
+			t.Fatalf("pinned request leaked to non-k2 upstream: %v", seenAuths)
+		}
+	}
+}
+
+// TestProxyPinnedKeyAccountRateLimited returns 429 without retrying any other key.
+func TestProxyPinnedKeyAccountRateLimited(t *testing.T) {
+	srv, calls := mockUpstream(t, func(_ int) int { return http.StatusOK })
+	defer srv.Close()
+
+	cfg := &Config{}
+	cfg.Upstream.BaseURL = srv.URL
+	cfg.Upstream.CostMode = "free"
+	cfg.Upstream.DefaultModel = "anthropic/claude-sonnet-4"
+	disabled := false
+	cfg.Upstream.OpenRouter.Enabled = &disabled
+	cfg.Limits.AccountRPM = 1 // exactly 1 req/min per account
+	cfg.applyDefaults()
+	pool := NewKeyPoolWithLabels([]string{"k1", "k2"}, []string{"t", "t"})
+	reloader := NewReloader("/dev/null", cfg, pool, nil)
+	reloader.SetLimiters(NewLimiterSet(cfg.Limits))
+	p := NewProxyHandler(reloader, pool)
+
+	// 1st pinned request: consumes k1's single account token
+	if r := firePinned(t, p, 0, "k1"); r.Code != http.StatusOK {
+		t.Fatalf("1st want 200, got %d", r.Code)
+	}
+	// 2nd: k1 exhausted → must return 429 without trying k2
+	r := firePinned(t, p, 0, "k1")
+	if r.Code != http.StatusTooManyRequests {
+		t.Fatalf("2nd pinned want 429, got %d: %s", r.Code, r.Body.String())
+	}
+	if !strings.Contains(r.Body.String(), "绑定账号") {
+		t.Fatalf("want 绑定账号 msg, got %s", r.Body.String())
+	}
+	// Upstream must not have been hit a second time (agent-runs for call 1, chat for call 1 = 1 call)
+	if got := atomic.LoadInt32(calls); got != 1 {
+		t.Fatalf("pinned must not retry another key; upstream chat calls=%d", got)
+	}
+}
+
+// TestProxyPinnedKeyBroken returns 503 when the pinned account is circuit-broken.
+func TestProxyPinnedKeyBroken(t *testing.T) {
+	srv, calls := mockUpstream(t, func(_ int) int { return http.StatusOK })
+	defer srv.Close()
+
+	p := buildTestProxy(t, srv.URL, []string{"k1", "k2"})
+	p.keys.TripBreaker(0) // k1 broken
+
+	r := firePinned(t, p, 0, "k1")
+	if r.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503, got %d: %s", r.Code, r.Body.String())
+	}
+	if !strings.Contains(r.Body.String(), "绑定账号暂不可用") {
+		t.Fatalf("want 绑定账号暂不可用 msg, got %s", r.Body.String())
+	}
+	if got := atomic.LoadInt32(calls); got != 0 {
+		t.Fatalf("broken pinned must not hit upstream, got calls=%d", got)
+	}
+}
+
+// TestProxyPinnedUpstreamFailureDoesNotFallOver — when the pinned upstream
+// returns 401, we return sanitized error. No cross-account retry.
+func TestProxyPinnedUpstreamFailureDoesNotFallOver(t *testing.T) {
+	srv, calls := mockUpstream(t, func(_ int) int { return http.StatusUnauthorized })
+	defer srv.Close()
+
+	p := buildTestProxy(t, srv.URL, []string{"k1", "k2", "k3"})
+	r := firePinned(t, p, 0, "k1")
+	if r.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503 (sanitized 401), got %d: %s", r.Code, r.Body.String())
+	}
+	// Only k1 should have been hit once — not other keys.
+	if got := atomic.LoadInt32(calls); got != 1 {
+		t.Fatalf("pinned 401 must not fall over, got %d upstream calls", got)
+	}
+}
+
 // Ensure concurrent requests don't interfere (round-robin under contention).
 func TestRetryConcurrent(t *testing.T) {
 	srv, _ := mockUpstream(t, func(_ int) int { return http.StatusOK })

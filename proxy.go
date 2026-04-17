@@ -12,6 +12,36 @@ import (
 	"strings"
 )
 
+// sanitizeUpstreamError maps an upstream HTTP status to a client-facing
+// (status, jsonBody) pair. body == "" means caller should pass the upstream
+// response through unchanged. Successful 2xx never reach this function.
+func sanitizeUpstreamError(status int) (int, string) {
+	switch {
+	case status == http.StatusUnauthorized,
+		status == http.StatusPaymentRequired,
+		status == http.StatusForbidden:
+		return http.StatusServiceUnavailable,
+			`{"error":{"message":"上游账号不可用，请稍后重试","type":"upstream_unavailable"}}`
+	case status == http.StatusTooManyRequests:
+		return http.StatusServiceUnavailable,
+			`{"error":{"message":"上游限流，请稍后重试","type":"upstream_throttled"}}`
+	case status >= 500:
+		return http.StatusBadGateway,
+			`{"error":{"message":"上游服务异常，请稍后重试","type":"upstream_error"}}`
+	case status == http.StatusBadRequest:
+		return http.StatusBadRequest,
+			`{"error":{"message":"请求被上游拒绝","type":"invalid_request"}}`
+	}
+	return status, ""
+}
+
+// writeSanitized writes a plain JSON error body with the given status.
+func writeSanitized(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	io.WriteString(w, body)
+}
+
 type ProxyHandler struct {
 	reloader *Reloader
 	client   *http.Client
@@ -71,7 +101,8 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
 			return
 		}
-		http.Error(w, `{"error":{"message":"No upstream API keys available","type":"server_error"}}`, http.StatusServiceUnavailable)
+		writeSanitized(w, http.StatusServiceUnavailable,
+			`{"error":{"message":"号池无可用账号，请联系管理员添加上游账号","type":"pool_empty"}}`)
 		return
 	}
 	log.Printf("→ upstream key[%d]=%s", keyIdx, fingerprint(upstreamKey))
@@ -85,7 +116,8 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
 			return
 		}
-		http.Error(w, fmt.Sprintf(`{"error":{"message":"Failed to register agent run: %s","type":"upstream_error"}}`, err.Error()), http.StatusBadGateway)
+		writeSanitized(w, http.StatusBadGateway,
+			`{"error":{"message":"上游服务异常，请稍后重试","type":"upstream_error"}}`)
 		return
 	}
 
@@ -123,7 +155,8 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
 			return
 		}
-		http.Error(w, fmt.Sprintf(`{"error":{"message":"Upstream error: %s","type":"server_error"}}`, err.Error()), http.StatusBadGateway)
+		writeSanitized(w, http.StatusBadGateway,
+			`{"error":{"message":"上游服务异常，请稍后重试","type":"upstream_error"}}`)
 		return
 	}
 	defer resp.Body.Close()
@@ -144,8 +177,21 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			forwardToOpenRouter(w, r, body, p.client, cfg, downstreamToken)
 			return
 		}
+		// No fallback — return a sanitized error instead of leaking upstream body.
+		status, sanitized := sanitizeUpstreamError(resp.StatusCode)
+		if sanitized != "" {
+			writeSanitized(w, status, sanitized)
+			return
+		}
 	} else if resp.StatusCode < 400 {
 		p.keys.MarkSuccess(keyIdx)
+	} else if resp.StatusCode == http.StatusBadRequest {
+		// 400 from upstream — hide the raw message but don't change status.
+		status, sanitized := sanitizeUpstreamError(resp.StatusCode)
+		if sanitized != "" {
+			writeSanitized(w, status, sanitized)
+			return
+		}
 	}
 
 	isStream := false

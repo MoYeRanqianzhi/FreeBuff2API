@@ -75,7 +75,7 @@ func (p *PublicHandler) handlePoll(w http.ResponseWriter, r *http.Request) {
 	// the device-code flow is one-shot (only the session that initiated the
 	// fingerprint can retrieve them).
 	log.Printf("public oauth: saved credential label=%s email=%s donor=%s redeem=%s from=%s",
-		res.Label, res.Email, fingerprint(res.DonorKey), fingerprint(res.RedeemCode), clientIP(r))
+		res.Label, maskEmail(res.Email), fingerprint(res.DonorKey), fingerprint(res.RedeemCode), clientIP(r))
 
 	body := map[string]any{
 		"done":         true,

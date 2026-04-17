@@ -258,6 +258,11 @@ func (a *AdminHandler) handleKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !a.isDonorKeyUnique(token) {
+		writeErr(w, http.StatusConflict, "token collides with an existing donor key")
+		return
+	}
+
 	dir := a.reloader.Current().Auth.Dir
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("ensure auths dir: %v", err))
@@ -869,7 +874,9 @@ func sanitizeLabel(s string) string {
 
 func randomHex(n int) string {
 	b := make([]byte, n)
-	io.ReadFull(rand.Reader, b)
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
 	return fmt.Sprintf("%x", b)
 }
 
@@ -920,59 +927,6 @@ func atomicWrite(path string, data []byte) error {
 // EXDEV when the temp and target are on different filesystems).
 func isBindMountRenameErr(err error) bool {
 	return errors.Is(err, syscall.EBUSY) || errors.Is(err, syscall.EXDEV)
-}
-
-// redactYAMLKeys replaces real key values in server.api_keys / auth.api_keys
-// with fingerprints so the admin UI can display the config without leaking
-// secrets on the wire.
-func redactYAMLKeys(raw []byte) ([]byte, error) {
-	var root yaml.Node
-	if err := yaml.Unmarshal(raw, &root); err != nil {
-		return nil, err
-	}
-	if len(root.Content) == 0 {
-		return raw, nil
-	}
-	redactListAt(&root, []string{"server", "api_keys"})
-	redactListAt(&root, []string{"auth", "api_keys"})
-	out, err := yaml.Marshal(&root)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// redactListAt navigates node by map keys and redacts scalar items under the
-// final list node.
-func redactListAt(root *yaml.Node, path []string) {
-	node := root
-	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
-		node = node.Content[0]
-	}
-	for _, key := range path {
-		if node == nil || node.Kind != yaml.MappingNode {
-			return
-		}
-		var found *yaml.Node
-		for i := 0; i+1 < len(node.Content); i += 2 {
-			if node.Content[i].Value == key {
-				found = node.Content[i+1]
-				break
-			}
-		}
-		if found == nil {
-			return
-		}
-		node = found
-	}
-	if node == nil || node.Kind != yaml.SequenceNode {
-		return
-	}
-	for _, item := range node.Content {
-		if item.Kind == yaml.ScalarNode && item.Value != "" {
-			item.Value = fingerprint(item.Value)
-		}
-	}
 }
 
 // mergeRedactedKeys replaces any api_keys list item that looks like a fingerprint

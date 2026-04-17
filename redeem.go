@@ -140,7 +140,9 @@ func removeFirstLine(raw []byte, target string) []byte {
 			removed = true
 			continue
 		}
-		out.WriteString(line)
+		// Strip trailing \r so Windows-edited files (\r\n) don't accumulate
+		// stray carriage returns on each rewrite cycle.
+		out.WriteString(strings.TrimRight(line, "\r"))
 		out.WriteByte('\n')
 	}
 	return out.Bytes()

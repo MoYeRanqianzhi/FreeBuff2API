@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,10 +28,35 @@ import (
 type AdminHandler struct {
 	reloader *Reloader
 	pool     *KeyPool
+	redeem   *RedeemStore
+
+	// pollCache dedupes /oauth/poll success by fingerprintId. Without this, a
+	// client that keeps polling after success (or an attacker replaying the
+	// fingerprint query-string) would re-trigger credential write, donor-key
+	// generation, and redeem-code consumption on every hit. Entries live ~10
+	// minutes which comfortably covers the codebuff device-code window.
+	pollCache sync.Map // fingerprintId → *pollSlot
+
+	// donorMu serializes donor-key generation + credential write + reload so
+	// two concurrent callers cannot race through the uniqueness check with the
+	// same candidate, or collide on the credential JSON file.
+	donorMu sync.Mutex
 }
 
-func NewAdminHandler(reloader *Reloader, pool *KeyPool) *AdminHandler {
-	return &AdminHandler{reloader: reloader, pool: pool}
+// pollSlot guards a single fingerprint's result. First caller runs the upstream
+// roundtrip under mu; later callers block on mu, then read the cached result.
+type pollSlot struct {
+	mu        sync.Mutex
+	result    *oauthPollResult // non-nil once upstream has succeeded
+	createdAt time.Time
+}
+
+// pollCacheTTL bounds how long we remember a successful poll. 10 minutes
+// covers the codebuff device-code validity window plus generous client slack.
+const pollCacheTTL = 10 * time.Minute
+
+func NewAdminHandler(reloader *Reloader, pool *KeyPool, redeem *RedeemStore) *AdminHandler {
+	return &AdminHandler{reloader: reloader, pool: pool, redeem: redeem}
 }
 
 // adminGuard gates every /admin/* request. When token.key is empty or missing,
@@ -82,6 +108,7 @@ func (a *AdminHandler) mount(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/api/reload", a.handleReload)
 	mux.HandleFunc("/admin/api/oauth/start", a.handleOAuthStart)
 	mux.HandleFunc("/admin/api/oauth/poll", a.handleOAuthPoll)
+	mux.HandleFunc("/admin/api/redeem", a.handleRedeem)
 }
 
 // -------------------------------- handlers --------------------------------
@@ -119,12 +146,24 @@ func (a *AdminHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		keys = append(keys, kv)
 	}
+	cfg := a.reloader.Current()
+	redeemRemaining := 0
+	if a.redeem != nil {
+		redeemRemaining = a.redeem.Count()
+	}
+
 	writeOK(w, map[string]any{
 		"total":             len(snap),
 		"healthy":           a.pool.HealthySize(),
 		"breaker_threshold": a.pool.Threshold(),
 		"breaker_cooldown":  a.pool.Cooldown().String(),
 		"keys":              keys,
+		"incentive": map[string]any{
+			"mode":              cfg.Incentive.Mode,
+			"redeem_usage":      cfg.Incentive.RedeemUsage,
+			"redeem_codes_file": cfg.Incentive.RedeemCodesFile,
+			"redeem_remaining":  redeemRemaining,
+		},
 	})
 }
 
@@ -332,9 +371,18 @@ func (a *AdminHandler) handleKeyDonor(w http.ResponseWriter, r *http.Request, la
 				body.Key = ""
 			}
 		}
+		// Lock spans uniqueness check + file write + reload so two concurrent
+		// POSTs can't race through with the same candidate.
+		a.donorMu.Lock()
+		defer a.donorMu.Unlock()
 		donor := strings.TrimSpace(body.Key)
 		if donor == "" {
-			donor = a.generateDonorKey()
+			g, err := a.generateDonorKey()
+			if err != nil {
+				writeErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			donor = g
 		}
 		if err := a.writeCredentialDonor(label, donor); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -385,20 +433,20 @@ func (a *AdminHandler) writeCredentialDonor(label, donor string) error {
 }
 
 // generateDonorKey returns a fresh random donor key indistinguishable in shape
-// from a real OpenRouter v1 key: `sk-or-v1-<64 hex chars>` (256 bits). The
-// caller guarantees uniqueness by checking against the live donor set + the
-// server/auth api_keys lists; collisions at 2^128 birthday bound are
-// effectively impossible, but we still retry defensively.
-func (a *AdminHandler) generateDonorKey() string {
+// from a real OpenRouter v1 key: `sk-or-v1-<64 hex chars>` (256 bits). Checks
+// against the live donor set + server/auth api_keys lists; at 2^256 the
+// birthday collision probability is effectively zero, so 8 consecutive misses
+// means the RNG or pool state is broken — refuse rather than issue an
+// unchecked key. Caller must hold a.donorMu to close the TOCTOU window
+// between the uniqueness check and the on-disk write that registers the key.
+func (a *AdminHandler) generateDonorKey() (string, error) {
 	for attempt := 0; attempt < 8; attempt++ {
 		candidate := "sk-or-v1-" + randomHex(32)
 		if a.isDonorKeyUnique(candidate) {
-			return candidate
+			return candidate, nil
 		}
 	}
-	// Extremely unlikely: fall through with the last candidate. The caller
-	// will surface a write error if it truly collides.
-	return "sk-or-v1-" + randomHex(32)
+	return "", fmt.Errorf("donor key generator exhausted retries; check rng or key pool state")
 }
 
 // isDonorKeyUnique reports whether candidate collides with any existing donor
@@ -432,6 +480,51 @@ func (a *AdminHandler) handleReload(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, map[string]any{"reloaded": true})
 }
 
+// handleRedeem exposes minimal CRUD over the redeem-code pool.
+//
+//	GET  /admin/api/redeem          → { remaining: N }
+//	POST /admin/api/redeem  body={"codes":["c1","c2"]} → { added: K, remaining: N }
+//	POST /admin/api/redeem  body={"text":"c1\nc2\n"}   → same
+func (a *AdminHandler) handleRedeem(w http.ResponseWriter, r *http.Request) {
+	if a.redeem == nil {
+		writeErr(w, http.StatusServiceUnavailable, "redeem store not configured")
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeOK(w, map[string]any{
+			"remaining": a.redeem.Count(),
+			"path":      a.redeem.Path(),
+		})
+	case http.MethodPost:
+		var body struct {
+			Codes []string `json:"codes"`
+			Text  string   `json:"text"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		codes := body.Codes
+		if body.Text != "" {
+			for _, line := range strings.Split(body.Text, "\n") {
+				codes = append(codes, line)
+			}
+		}
+		if len(codes) == 0 {
+			writeErr(w, http.StatusBadRequest, "no codes supplied")
+			return
+		}
+		added := a.redeem.Append(codes)
+		writeOK(w, map[string]any{
+			"added":     added,
+			"remaining": a.redeem.Count(),
+		})
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 // -------------------------------- OAuth --------------------------------
 
 // oauthStartResult holds the device-code handle returned to the browser.
@@ -452,7 +545,10 @@ type oauthPollResult struct {
 	Label    string
 	Email    string
 	Name     string
-	DonorKey string // issued alongside the credential on successful login
+	DonorKey string // non-empty when incentive mode is donor_key
+	// Redeem fields are populated only when incentive mode is redeem_code.
+	RedeemCode  string
+	RedeemUsage string
 }
 
 // oauthStart triggers the codebuff device-code flow and returns the login URL
@@ -524,6 +620,21 @@ func rawJSONToString(raw json.RawMessage) string {
 // while codebuff is still waiting on the user to complete login. Shared by
 // admin and public handlers.
 func (a *AdminHandler) oauthPoll(ctx context.Context, fpID, fpHash, expiresAt string) (*oauthPollResult, error) {
+	// Per-fingerprint dedup: if another goroutine (or an earlier poll from the
+	// same client) has already banked the credential and issued the reward,
+	// reuse that result instead of re-running all the side effects. This is
+	// critical — without it, a browser that keeps polling after success (or an
+	// attacker replaying fp/fph/exp) would consume extra redeem codes, mint
+	// duplicate donor keys, and pollute auths/ with suffixed duplicates.
+	slot := a.getPollSlot(fpID)
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.result != nil {
+		// Return a copy so callers can't mutate the cached result.
+		cached := *slot.result
+		return &cached, nil
+	}
+
 	cfg := a.reloader.Current()
 	statusURL := fmt.Sprintf("%s/api/auth/cli/status?fingerprintId=%s&fingerprintHash=%s&expiresAt=%s",
 		cfg.Upstream.BaseURL,
@@ -588,16 +699,37 @@ func (a *AdminHandler) oauthPoll(ctx context.Context, fpID, fpHash, expiresAt st
 		path = filepath.Join(dir, label+".json")
 	}
 
-	// Issue a donor key bound to this new upstream account. The donor key is
-	// the contributor's reward: it grants them /v1/* access pinned to the
-	// account they just donated, and cannot fan out to other pool members.
-	donor := a.generateDonorKey()
+	// Decide the contributor's reward from the configured incentive mode.
+	// The credential itself is always persisted — both modes grow the pool;
+	// only the reward handed back to the contributor differs.
+	mode := cfg.Incentive.Mode
+	if mode == "" {
+		mode = IncentiveModeDonorKey
+	}
+
+	// Serialize donor generate + credential write + reload across every donor-
+	// minting path (admin donor endpoint + oauth callback). Without this a
+	// second caller could pass `isDonorKeyUnique` with a candidate the first
+	// caller has already written but not yet reloaded into the pool.
+	if mode == IncentiveModeDonorKey {
+		a.donorMu.Lock()
+		defer a.donorMu.Unlock()
+	}
+
+	var donor string
+	if mode == IncentiveModeDonorKey {
+		g, err := a.generateDonorKey()
+		if err != nil {
+			return nil, err
+		}
+		donor = g
+	}
 
 	cred := credentialFile{
 		ID:        u.ID,
 		Email:     u.Email,
 		AuthToken: u.AuthToken,
-		DonorKey:  donor,
+		DonorKey:  donor, // empty when running in redeem_code mode
 	}
 	if u.Name != "" {
 		cred.Name = &u.Name
@@ -607,12 +739,56 @@ func (a *AdminHandler) oauthPoll(ctx context.Context, fpID, fpHash, expiresAt st
 		return nil, fmt.Errorf("write: %w", err)
 	}
 	a.reloader.Reload("oauth-login")
-	return &oauthPollResult{
+
+	res := &oauthPollResult{
 		Label:    label,
 		Email:    u.Email,
 		Name:     u.Name,
 		DonorKey: donor,
-	}, nil
+	}
+
+	// Redeem mode: consume one code from the pool. A missing/empty pool is
+	// NOT a login failure — the credential is still banked; the contributor
+	// just gets no code this time and the admin will see redeem_remaining=0.
+	if mode == IncentiveModeRedeemCode && a.redeem != nil {
+		if code, ok := a.redeem.Pop(); ok {
+			res.RedeemCode = code
+			res.RedeemUsage = cfg.Incentive.RedeemUsage
+		}
+	}
+
+	// Remember the fully-populated result so replays return the same reward
+	// without re-running any of the above side effects. A copy is cached so
+	// later mutations to `res` (none today, but defense in depth) can't leak.
+	cached := *res
+	slot.result = &cached
+	return res, nil
+}
+
+// getPollSlot returns the shared *pollSlot for fpID, creating one if needed.
+// Concurrent calls for the same fingerprint see the same slot; its mu then
+// serializes the upstream roundtrip and result caching. Slots older than
+// pollCacheTTL are evicted on access.
+func (a *AdminHandler) getPollSlot(fpID string) *pollSlot {
+	now := time.Now()
+	if v, ok := a.pollCache.Load(fpID); ok {
+		slot := v.(*pollSlot)
+		if now.Sub(slot.createdAt) < pollCacheTTL {
+			return slot
+		}
+		a.pollCache.Delete(fpID)
+	}
+	// Opportunistic eviction so the map doesn't grow unbounded under churn.
+	// Cheap O(n) sweep; call site is not hot (device-code flow).
+	a.pollCache.Range(func(k, v any) bool {
+		if now.Sub(v.(*pollSlot).createdAt) >= pollCacheTTL {
+			a.pollCache.Delete(k)
+		}
+		return true
+	})
+	fresh := &pollSlot{createdAt: now}
+	actual, _ := a.pollCache.LoadOrStore(fpID, fresh)
+	return actual.(*pollSlot)
 }
 
 // handleOAuthStart initiates the codebuff Device Code Flow (admin variant).
@@ -660,13 +836,20 @@ func (a *AdminHandler) handleOAuthPoll(w http.ResponseWriter, r *http.Request) {
 		writeOK(w, map[string]any{"pending": true})
 		return
 	}
-	writeOK(w, map[string]any{
-		"done":      true,
-		"label":     res.Label,
-		"email":     res.Email,
-		"name":      res.Name,
-		"donor_key": res.DonorKey,
-	})
+	body := map[string]any{
+		"done":  true,
+		"label": res.Label,
+		"email": res.Email,
+		"name":  res.Name,
+	}
+	if res.DonorKey != "" {
+		body["donor_key"] = res.DonorKey
+	}
+	if res.RedeemCode != "" {
+		body["redeem_code"] = res.RedeemCode
+		body["redeem_usage"] = res.RedeemUsage
+	}
+	writeOK(w, body)
 }
 
 func sanitizeLabel(s string) string {

@@ -240,6 +240,8 @@ trip:         (idx)=>api('/admin/api/keys/'+idx+'/trip',{method:'POST'}),
 reset:        (idx)=>api('/admin/api/keys/'+idx+'/reset',{method:'POST'}),
 setDonor:     (label,key)=>api('/admin/api/keys/'+encodeURIComponent(label)+'/donor',{method:'POST',body:JSON.stringify({key:key||''})}),
 clearDonor:   (label)=>api('/admin/api/keys/'+encodeURIComponent(label)+'/donor',{method:'DELETE'}),
+getRedeem:    ()=>api('/admin/api/redeem'),
+uploadRedeem: (text)=>api('/admin/api/redeem',{method:'POST',body:JSON.stringify({text})}),
 reload:       ()=>api('/admin/api/reload',{method:'POST'}),
 oauthStart:   ()=>api('/admin/api/oauth/start',{method:'POST'}),
 oauthPoll:    (fp,fph,exp)=>api(`/admin/api/oauth/poll?fp=${encodeURIComponent(fp)}&fph=${encodeURIComponent(fph)}&exp=${encodeURIComponent(exp)}`),
@@ -396,6 +398,8 @@ function renderDashboard(){
 const totalV=h('div',{class:'value','data-val':'0'},'0');
 const healthyV=h('div',{class:'value','data-val':'0'},'0');
 const brokenV=h('div',{class:'value','data-val':'0'},'0');
+const incV=h('div',{class:'value','data-val':'0'},'—');
+const incLabelEl=h('div',{class:'label'},'Incentive');
 const statRow=h('div',{class:'stat-row'},
 h('div',{class:'glass stat total enter',style:'animation-delay:0ms'},
 h('div',{class:'accent'}),
@@ -406,6 +410,9 @@ h('div',{class:'label'},'Healthy'),healthyV),
 h('div',{class:'glass stat breaker enter',style:'animation-delay:160ms'},
 h('div',{class:'accent'}),
 h('div',{class:'label'},'Breakers Active'),brokenV),
+h('div',{class:'glass stat enter',style:'animation-delay:200ms;cursor:pointer',title:'点击上传卡密',onclick:()=>openRedeemModal()},
+h('div',{class:'accent'}),
+incLabelEl,incV),
 );
 const tableWrap=h('div',{class:'table enter',style:'animation-delay:240ms'},
 h('div',{class:'empty glass',style:'padding:40px;text-align:center'},'加载中…')
@@ -421,6 +428,14 @@ const healthy=total-activeBroken;
 countUp(totalV,total);
 countUp(healthyV,healthy);
 countUp(brokenV,activeBroken);
+const inc=d.incentive||{};
+const mode=inc.mode||'donor_key';
+incLabelEl.textContent=mode==='redeem_code'?'Redeem 剩余':'Incentive (Donor)';
+if(mode==='redeem_code'){
+  countUp(incV,inc.redeem_remaining|0);
+}else{
+  incV.textContent='—';incV.setAttribute('data-val','—');
+}
 renderKeyRows(tableWrap,d);
 }catch(e){
 if(e.message!=='未授权') toast(e.message,'error');
@@ -550,6 +565,37 @@ el.textContent=rem>0?fmtDuration(rem):'0s';
 },1000);
 }
 function stopCountdown(){if(State.countdownTimer){clearInterval(State.countdownTimer);State.countdownTimer=null}}
+function openRedeemModal(){
+  const ta=h('textarea',{class:'input mono',rows:10,placeholder:'一行一条卡密\nCODE-AAA\nCODE-BBB'});
+  ta.style.cssText='width:100%;min-height:180px;font-family:var(--mono-font);font-size:13px';
+  const backdrop=h('div',{class:'modal-backdrop'});
+  const close=()=>{backdrop.classList.remove('show');setTimeout(()=>backdrop.remove(),250);document.removeEventListener('keydown',escHandler)};
+  const escHandler=e=>{if(e.key==='Escape') close()};
+  const submit=async e=>{
+    e&&rippleEffect(e);
+    const text=ta.value;
+    if(!text.trim()){toast('请粘贴卡密','error');return}
+    try{
+      const r=await API.uploadRedeem(text);
+      toast(`已追加 ${r.added} 条，总剩余 ${r.remaining}`);
+      close();refreshStatus();
+    }catch(e){toast(e.message,'error')}
+  };
+  const modal=h('div',{class:'glass modal'},
+    h('h2',{},'上传卡密'),
+    h('div',{class:'subtitle'},'一行一条；空行和 # 开头的行会被忽略；与已有条目去重'),
+    h('div',{class:'field'},ta),
+    h('div',{class:'modal-actions'},
+      h('button',{class:'btn btn-ghost',onclick:e=>{rippleEffect(e);close()}},'取消'),
+      h('button',{class:'btn btn-primary',onclick:submit},'上传'),
+    ),
+  );
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  document.addEventListener('keydown',escHandler);
+  setTimeout(()=>{backdrop.classList.add('show');ta.focus()},10);
+}
+
 function openAddKeyModal(){
 const labelIn=h('input',{class:'input',placeholder:'alice',pattern:'[a-zA-Z0-9_-]+',autofocus:true});
 const tokenIn=h('input',{class:'input mono',type:'password',placeholder:'cb_xxx...'});
@@ -857,8 +903,15 @@ function buildVisualPanels(yamlStr){
     mkField('limits.account_rpm','单账号 RPM',{ph:'0 = 不限'}),
     mkField('limits.client_rpm','单客户端 RPM',{ph:'0 = 不限'}),
   ));
-  // Logging
+  // Incentive
   visualView.appendChild(h('div',{class:'glass cfg-panel enter',style:'animation-delay:300ms'},
+    h('div',{class:'panel-title'},h('span',{class:'icon'}),'Incentive'),
+    mkField('incentive.mode','激励模式',{options:['donor_key','redeem_code']}),
+    mkField('incentive.redeem_codes_file','卡密文件路径',{ph:'redeem_codes.txt'}),
+    mkField('incentive.redeem_usage','卡密用法提示（一句话）',{ph:'前往 https://example.com/redeem 兑换'}),
+  ));
+  // Logging
+  visualView.appendChild(h('div',{class:'glass cfg-panel enter',style:'animation-delay:360ms'},
     h('div',{class:'panel-title'},h('span',{class:'icon'}),'Logging'),
     mkField('logging.level','日志级别',{options:['debug','info','warn','error']}),
   ));

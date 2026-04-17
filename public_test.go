@@ -32,16 +32,29 @@ func TestMaskEmail(t *testing.T) {
 // setupPublicHandler wires a PublicHandler against a mock codebuff.
 func setupPublicHandler(t *testing.T, codebuffURL, authsDir string) *PublicHandler {
 	t.Helper()
+	return setupPublicHandlerWithRedeem(t, codebuffURL, authsDir, "", "")
+}
+
+// setupPublicHandlerWithRedeem is a variant used by incentive-mode tests.
+// If redeemFile is non-empty it preseeds the RedeemStore with its contents.
+func setupPublicHandlerWithRedeem(t *testing.T, codebuffURL, authsDir, redeemPath, usage string) *PublicHandler {
+	t.Helper()
 	cfg := &Config{}
 	cfg.Upstream.BaseURL = codebuffURL
 	cfg.Upstream.CostMode = "free"
 	disabled := false
 	cfg.Upstream.OpenRouter.Enabled = &disabled
 	cfg.Auth.Dir = authsDir
+	if redeemPath != "" {
+		cfg.Incentive.Mode = IncentiveModeRedeemCode
+		cfg.Incentive.RedeemCodesFile = redeemPath
+		cfg.Incentive.RedeemUsage = usage
+	}
 	cfg.applyDefaults()
 	pool := NewKeyPoolWithLabels(nil, nil)
 	reloader := NewReloader(filepath.Join(authsDir, "config.yaml"), cfg, pool, nil)
-	admin := NewAdminHandler(reloader, pool)
+	store := NewRedeemStore(cfg.Incentive.RedeemCodesFile)
+	admin := NewAdminHandler(reloader, pool, store)
 	return NewPublicHandler(admin)
 }
 
@@ -217,6 +230,203 @@ func TestPublicPollResponseHidesSensitiveFields(t *testing.T) {
 	// Persisted donor key matches what we returned.
 	if !strings.Contains(string(data), env.Data.DonorKey) {
 		t.Errorf("donor key not persisted to credential file: %s", string(data))
+	}
+}
+
+// TestPublicPollRedeemMode verifies redeem_code mode hands back a popped code
+// (consumed from the file) instead of a donor key.
+func TestPublicPollRedeemMode(t *testing.T) {
+	codebuff := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/auth/cli/status") {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, `{"user":{"id":"u1","email":"alice@example.com","authToken":"cb_live_alice"}}`)
+	}))
+	defer codebuff.Close()
+
+	tmp := t.TempDir()
+	redeemFile := filepath.Join(tmp, "codes.txt")
+	if err := os.WriteFile(redeemFile, []byte("CODE-ONE\nCODE-TWO\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ph := setupPublicHandlerWithRedeem(t, codebuff.URL, tmp, redeemFile, "前往 https://x/redeem 兑换")
+
+	req := httptest.NewRequest(http.MethodGet, "/public/oauth/poll?fp=fp_pub_abc&fph=h&exp=2026-04-17T12:00:00Z", nil)
+	rec := httptest.NewRecorder()
+	ph.handlePoll(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"redeem_code":"CODE-ONE"`) {
+		t.Errorf("expected CODE-ONE in body, got %s", body)
+	}
+	if !strings.Contains(body, `"redeem_usage":"前往`) {
+		t.Errorf("expected usage string, got %s", body)
+	}
+	// donor_key must be absent in redeem mode.
+	if strings.Contains(body, `"donor_key"`) {
+		t.Errorf("donor_key must not appear in redeem mode: %s", body)
+	}
+	// File on disk should have been rewritten without CODE-ONE.
+	raw, _ := os.ReadFile(redeemFile)
+	if strings.Contains(string(raw), "CODE-ONE") {
+		t.Errorf("CODE-ONE should have been consumed, file=%q", string(raw))
+	}
+	if !strings.Contains(string(raw), "CODE-TWO") {
+		t.Errorf("CODE-TWO should remain, file=%q", string(raw))
+	}
+}
+
+// TestPublicPollRedeemEmptyPool confirms the OAuth login still succeeds when
+// no redeem codes are available — the credential is banked, just no reward.
+func TestPublicPollRedeemEmptyPool(t *testing.T) {
+	codebuff := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/auth/cli/status") {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, `{"user":{"id":"u1","email":"bob@example.com","authToken":"cb_live_bob"}}`)
+	}))
+	defer codebuff.Close()
+
+	tmp := t.TempDir()
+	redeemFile := filepath.Join(tmp, "codes.txt") // intentionally missing
+	ph := setupPublicHandlerWithRedeem(t, codebuff.URL, tmp, redeemFile, "usage")
+
+	req := httptest.NewRequest(http.MethodGet, "/public/oauth/poll?fp=fp_pub_abc&fph=h&exp=X", nil)
+	rec := httptest.NewRecorder()
+	ph.handlePoll(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"done":true`) {
+		t.Errorf("login should still succeed: %s", body)
+	}
+	if strings.Contains(body, `"redeem_code"`) || strings.Contains(body, `"donor_key"`) {
+		t.Errorf("neither reward should appear when pool is empty: %s", body)
+	}
+	// Credential still banked.
+	matches, _ := filepath.Glob(filepath.Join(tmp, "*.json"))
+	if len(matches) == 0 {
+		t.Errorf("credential not banked even though reward was empty")
+	}
+}
+
+// TestPublicPollDedupesRepeatedPolls guards against a critical regression:
+// without per-fingerprint caching, a browser that keeps polling after success
+// (or an attacker replaying fp/fph/exp) would mint a fresh donor key, consume
+// another redeem code, and write a *new* auths/*.json file on every hit.
+// Expected behaviour: subsequent polls return the same reward verbatim, and
+// the redeem pool / auths dir are untouched after the first success.
+func TestPublicPollDedupesRepeatedPolls(t *testing.T) {
+	codebuff := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/auth/cli/status") {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, `{"user":{"id":"u1","email":"alice@example.com","authToken":"cb_live_alice"}}`)
+	}))
+	defer codebuff.Close()
+
+	tmp := t.TempDir()
+	redeemFile := filepath.Join(tmp, "codes.txt")
+	if err := os.WriteFile(redeemFile, []byte("CODE-1\nCODE-2\nCODE-3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ph := setupPublicHandlerWithRedeem(t, codebuff.URL, tmp, redeemFile, "x")
+
+	url := "/public/oauth/poll?fp=fp_pub_stable&fph=h&exp=2026-04-17T12:00:00Z"
+
+	var firstCode string
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		rec := httptest.NewRecorder()
+		ph.handlePoll(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("iter %d: status %d: %s", i, rec.Code, rec.Body.String())
+		}
+		var env struct {
+			Data struct {
+				RedeemCode string `json:"redeem_code"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			firstCode = env.Data.RedeemCode
+			if firstCode == "" {
+				t.Fatalf("first poll returned empty redeem_code: %s", rec.Body.String())
+			}
+		} else if env.Data.RedeemCode != firstCode {
+			t.Fatalf("iter %d returned different code %q want cached %q", i, env.Data.RedeemCode, firstCode)
+		}
+	}
+
+	// Only CODE-1 should have been consumed; CODE-2 and CODE-3 remain.
+	raw, _ := os.ReadFile(redeemFile)
+	remaining := strings.TrimSpace(string(raw))
+	wantLines := []string{"CODE-2", "CODE-3"}
+	for _, want := range wantLines {
+		if !strings.Contains(remaining, want) {
+			t.Errorf("redeem file should still contain %q, got %q", want, remaining)
+		}
+	}
+	if strings.Count(remaining, "\n") > 1 {
+		t.Errorf("expected exactly one code consumed, file=%q", remaining)
+	}
+
+	// Exactly one credential file on disk, not five.
+	matches, _ := filepath.Glob(filepath.Join(tmp, "*.json"))
+	if len(matches) != 1 {
+		t.Errorf("want 1 credential file after 5 polls, got %d: %v", len(matches), matches)
+	}
+}
+
+// TestPublicPollDedupesDonorMode confirms the same caching applies to
+// donor_key mode: five polls → one donor key returned five times and one
+// credential file written. Prevents the issue where each hit would mint and
+// persist a brand-new donor key.
+func TestPublicPollDedupesDonorMode(t *testing.T) {
+	codebuff := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/auth/cli/status") {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, `{"user":{"id":"u1","email":"bob@example.com","authToken":"cb_live_bob"}}`)
+	}))
+	defer codebuff.Close()
+
+	tmp := t.TempDir()
+	ph := setupPublicHandler(t, codebuff.URL, tmp)
+
+	url := "/public/oauth/poll?fp=fp_pub_bob&fph=h&exp=X"
+	var firstKey string
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		rec := httptest.NewRecorder()
+		ph.handlePoll(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("iter %d: %d", i, rec.Code)
+		}
+		var env struct {
+			Data struct {
+				DonorKey string `json:"donor_key"`
+			} `json:"data"`
+		}
+		json.Unmarshal(rec.Body.Bytes(), &env)
+		if i == 0 {
+			firstKey = env.Data.DonorKey
+		} else if env.Data.DonorKey != firstKey {
+			t.Fatalf("iter %d minted new donor key %q want cached %q", i, env.Data.DonorKey, firstKey)
+		}
+	}
+	matches, _ := filepath.Glob(filepath.Join(tmp, "*.json"))
+	if len(matches) != 1 {
+		t.Errorf("want 1 credential file, got %d", len(matches))
 	}
 }
 

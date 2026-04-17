@@ -35,11 +35,15 @@ func main() {
 
 	limiters := NewLimiterSet(cfg.Limits)
 
-	reloader := NewReloader(*configPath, cfg, pool, nil)
+	redeem := NewRedeemStore(cfg.Incentive.RedeemCodesFile)
+	reloader := NewReloader(*configPath, cfg, pool, func(_, next *Config) {
+		// Keep the redeem store pointed at whatever the live config says.
+		redeem.SetPath(next.Incentive.RedeemCodesFile)
+	})
 	reloader.SetLimiters(limiters)
 	proxy := NewProxyHandler(reloader, pool)
 
-	admin := NewAdminHandler(reloader, pool)
+	admin := NewAdminHandler(reloader, pool, redeem)
 	public := NewPublicHandler(admin)
 
 	mux := http.NewServeMux()

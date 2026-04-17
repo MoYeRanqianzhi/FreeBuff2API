@@ -69,18 +69,26 @@ func (p *PublicHandler) handlePoll(w http.ResponseWriter, r *http.Request) {
 		writeOK(w, map[string]any{"pending": true})
 		return
 	}
-	// Success — log full info on the server, return only masked email + the
-	// donor key to the client. The donor key is the reward: contributor uses
-	// it to call /v1/* pinned to their own donated account. It's OK to return
-	// in plaintext because the device-code flow is one-shot (only the session
-	// that initiated the fingerprint can retrieve it).
-	log.Printf("public oauth: saved credential label=%s email=%s donor=%s from=%s",
-		res.Label, res.Email, fingerprint(res.DonorKey), clientIP(r))
-	writeOK(w, map[string]any{
+	// Success — log full info on the server, return the minimum the
+	// contributor needs: masked email + exactly one reward field depending on
+	// the configured incentive mode. Redeem/donor values are plaintext because
+	// the device-code flow is one-shot (only the session that initiated the
+	// fingerprint can retrieve them).
+	log.Printf("public oauth: saved credential label=%s email=%s donor=%s redeem=%s from=%s",
+		res.Label, res.Email, fingerprint(res.DonorKey), fingerprint(res.RedeemCode), clientIP(r))
+
+	body := map[string]any{
 		"done":         true,
 		"email_masked": maskEmail(res.Email),
-		"donor_key":    res.DonorKey,
-	})
+	}
+	if res.DonorKey != "" {
+		body["donor_key"] = res.DonorKey
+	}
+	if res.RedeemCode != "" {
+		body["redeem_code"] = res.RedeemCode
+		body["redeem_usage"] = res.RedeemUsage
+	}
+	writeOK(w, body)
 }
 
 // maskEmail redacts the local part of an email down to its first two chars:

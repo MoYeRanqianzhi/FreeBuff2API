@@ -137,26 +137,42 @@ async function startLogin(){
 function renderSuccess(pd){
   const email=pd.email_masked||'';
   const donor=pd.donor_key||'';
+  const redeem=pd.redeem_code||'';
+  const redeemUsage=pd.redeem_usage||'';
   let html='✓ 登录成功，感谢支持！';
   if(email) html+='<span class="email">'+escapeHtml(email)+'</span>';
+  let rewardValue='';
   if(donor){
+    rewardValue=donor;
     html+=
       '<div class="donor-panel">'
       +'<div class="t">你的专属 API Key（请立即保存，刷新即消失）</div>'
-      +'<div class="donor-row"><code id="donorKey">'+escapeHtml(donor)+'</code>'
+      +'<div class="donor-row"><code id="rewardVal">'+escapeHtml(donor)+'</code>'
       +'<button type="button" id="copyBtn">复制</button></div>'
       +'<div class="donor-hint">该 Key 绑定到你刚刚捐赠的账号。使用方法：<code>Authorization: Bearer &lt;key&gt;</code>。上游账号限流时该 Key 同步受限，失效后该 Key 也不再可用。</div>'
       +'</div>';
+  }else if(redeem){
+    rewardValue=redeem;
+    const hint=redeemUsage?escapeHtml(redeemUsage):'请联系管理员了解兑换流程。';
+    html+=
+      '<div class="donor-panel">'
+      +'<div class="t">你的专属卡密（请立即保存，刷新即消失）</div>'
+      +'<div class="donor-row"><code id="rewardVal">'+escapeHtml(redeem)+'</code>'
+      +'<button type="button" id="copyBtn">复制</button></div>'
+      +'<div class="donor-hint">'+hint+'</div>'
+      +'</div>';
+  }else{
+    html+='<div class="donor-hint" style="margin-top:18px">本次未发放激励（奖励池已空），但你的捐赠已记录，感谢！</div>';
   }
   setStatus(html,'success');
   const copyBtn=document.getElementById('copyBtn');
-  if(copyBtn){
+  if(copyBtn && rewardValue){
     copyBtn.addEventListener('click',async ()=>{
       try{
         if(navigator.clipboard&&navigator.clipboard.writeText){
-          await navigator.clipboard.writeText(donor);
+          await navigator.clipboard.writeText(rewardValue);
         }else{
-          const ta=document.createElement('textarea');ta.value=donor;document.body.appendChild(ta);
+          const ta=document.createElement('textarea');ta.value=rewardValue;document.body.appendChild(ta);
           ta.select();document.execCommand('copy');ta.remove();
         }
         const orig=copyBtn.textContent;copyBtn.textContent='已复制 ✓';

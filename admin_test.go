@@ -50,7 +50,8 @@ auth:
 	reloader := NewReloader(cfgPath, cfg, pool, nil)
 	reloader.SetAdminTokenPath(tokPath)
 
-	admin := NewAdminHandler(reloader, pool)
+	redeem := NewRedeemStore(filepath.Join(dir, "redeem.txt"))
+	admin := NewAdminHandler(reloader, pool, redeem)
 	root := http.NewServeMux()
 	adminMux := http.NewServeMux()
 	admin.mount(adminMux)
@@ -72,7 +73,7 @@ func TestAdminGuardNoToken(t *testing.T) {
 	pool := NewKeyPool([]string{"k"})
 	reloader := NewReloader(cfgPath, cfg, pool, nil)
 	reloader.SetAdminTokenPath(filepath.Join(dir, "does-not-exist.key"))
-	admin := NewAdminHandler(reloader, pool)
+	admin := NewAdminHandler(reloader, pool, NewRedeemStore(filepath.Join(dir, "redeem.txt")))
 	mux := http.NewServeMux()
 	adminMux := http.NewServeMux()
 	admin.mount(adminMux)
@@ -361,6 +362,75 @@ func TestAdminStatusReturnsDonorKey(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "sk-or-v1-seeded") {
 		t.Fatalf("donor_key missing from status body: %s", rec.Body.String())
+	}
+}
+
+func TestAdminRedeemEndpoint(t *testing.T) {
+	srv, _, _, dir := newAdminTestServer(t, "")
+	// newAdminTestServer wires NewRedeemStore(dir/redeem.txt); seed it.
+	codesFile := filepath.Join(dir, "redeem.txt")
+	if err := os.WriteFile(codesFile, []byte("SEED-1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// GET
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/redeem", nil)
+	req.Header.Set("X-Admin-Token", "testadmin")
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET redeem got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"remaining":1`) {
+		t.Fatalf("expected remaining:1, body=%s", rec.Body.String())
+	}
+
+	// POST codes array
+	body, _ := json.Marshal(map[string]any{"codes": []string{"NEW-1", "NEW-2", "SEED-1"}})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/admin/api/redeem", bytes.NewReader(body))
+	req.Header.Set("X-Admin-Token", "testadmin")
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST redeem got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"added":2`) || !strings.Contains(rec.Body.String(), `"remaining":3`) {
+		t.Fatalf("expected added:2 remaining:3, got %s", rec.Body.String())
+	}
+
+	// POST text
+	body, _ = json.Marshal(map[string]any{"text": "LINE-A\nLINE-B\n"})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/admin/api/redeem", bytes.NewReader(body))
+	req.Header.Set("X-Admin-Token", "testadmin")
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST redeem text got %d", rec.Code)
+	}
+	raw, _ := os.ReadFile(codesFile)
+	for _, want := range []string{"SEED-1", "NEW-1", "NEW-2", "LINE-A", "LINE-B"} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("missing %q in %s", want, string(raw))
+		}
+	}
+}
+
+func TestAdminStatusIncludesIncentive(t *testing.T) {
+	srv, _, _, dir := newAdminTestServer(t, "")
+	if err := os.WriteFile(filepath.Join(dir, "redeem.txt"), []byte("C1\nC2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/status", nil)
+	req.Header.Set("X-Admin-Token", "testadmin")
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status got %d", rec.Code)
+	}
+	for _, want := range []string{`"mode":"donor_key"`, `"redeem_remaining":2`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("status missing %q; body=%s", want, rec.Body.String())
+		}
 	}
 }
 

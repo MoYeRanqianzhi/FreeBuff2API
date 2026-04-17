@@ -3,6 +3,7 @@
 ## P0（影响可用性）
 - [ ] **runId 池化**: 预热 runId 池，消除每请求 ~700ms 开销
 - [ ] 支持客户端通过 header 覆盖 `cost_mode`（如 `X-Freebuff-Cost-Mode: free`）
+- [x] 2026-04-18: **修复 extended thinking 断流（v0.11.2）** —— WriteTimeout 5min→30min；http.Client 加显式 Transport（ResponseHeaderTimeout=10min, HTTP/2, keep-alive tuning）
 
 ## P1
 - [ ] Prometheus metrics 端点（多账号维度）

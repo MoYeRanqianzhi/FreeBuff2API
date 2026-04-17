@@ -72,7 +72,7 @@ func main() {
 		Addr:         cfg.Server.ListenAddr,
 		Handler:      withMiddleware(mux, reloader, pool),
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 5 * time.Minute,
+		WriteTimeout: 30 * time.Minute,
 		IdleTimeout:  120 * time.Second,
 	}
 

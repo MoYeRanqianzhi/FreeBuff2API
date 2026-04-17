@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // sanitizeUpstreamError maps an upstream HTTP status to a client-facing
@@ -51,8 +54,22 @@ type ProxyHandler struct {
 func NewProxyHandler(reloader *Reloader, pool *KeyPool) *ProxyHandler {
 	return &ProxyHandler{
 		reloader: reloader,
-		client:   &http.Client{},
-		keys:     pool,
+		client: &http.Client{
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+				TLSHandshakeTimeout:   15 * time.Second,
+				ResponseHeaderTimeout: 10 * time.Minute,
+				IdleConnTimeout:       120 * time.Second,
+				MaxIdleConns:          100,
+				MaxIdleConnsPerHost:   20,
+				ForceAttemptHTTP2:     true,
+			},
+		},
+		keys: pool,
 	}
 }
 

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -75,6 +78,8 @@ func (a *AdminHandler) mount(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/api/keys", a.handleKeys)
 	mux.HandleFunc("/admin/api/keys/", a.handleKeySub)
 	mux.HandleFunc("/admin/api/reload", a.handleReload)
+	mux.HandleFunc("/admin/api/oauth/start", a.handleOAuthStart)
+	mux.HandleFunc("/admin/api/oauth/poll", a.handleOAuthPoll)
 }
 
 // -------------------------------- handlers --------------------------------
@@ -298,6 +303,187 @@ func (a *AdminHandler) handleReload(w http.ResponseWriter, r *http.Request) {
 	}
 	a.reloader.Reload("admin-manual")
 	writeOK(w, map[string]any{"reloaded": true})
+}
+
+// -------------------------------- OAuth --------------------------------
+
+// handleOAuthStart initiates the codebuff Device Code Flow.
+// POST /admin/api/oauth/start → calls codebuff /api/auth/cli/code
+// Returns loginUrl for the frontend to open in a new window.
+func (a *AdminHandler) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg := a.reloader.Current()
+	fpID := "fp_admin_" + randomHex(8)
+
+	body, _ := json.Marshal(map[string]string{"fingerprintId": fpID})
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		cfg.Upstream.BaseURL+"/api/auth/cli/code", bytes.NewReader(body))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "freebuff2api/1.0")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("codebuff: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("codebuff %d: %s", resp.StatusCode, string(raw)))
+		return
+	}
+	var codeResp struct {
+		LoginURL        string `json:"loginUrl"`
+		FingerprintHash string `json:"fingerprintHash"`
+		ExpiresAt       string `json:"expiresAt"`
+	}
+	if err := json.Unmarshal(raw, &codeResp); err != nil {
+		writeErr(w, http.StatusBadGateway, "bad codebuff response")
+		return
+	}
+	writeOK(w, map[string]any{
+		"login_url":        codeResp.LoginURL,
+		"fingerprint_id":   fpID,
+		"fingerprint_hash": codeResp.FingerprintHash,
+		"expires_at":       codeResp.ExpiresAt,
+	})
+}
+
+// handleOAuthPoll checks login status and saves the credential on success.
+// GET /admin/api/oauth/poll?fp=<id>&fph=<hash>&exp=<expiresAt>
+func (a *AdminHandler) handleOAuthPoll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg := a.reloader.Current()
+	q := r.URL.Query()
+	fpID := q.Get("fp")
+	fpHash := q.Get("fph")
+	expiresAt := q.Get("exp")
+	if fpID == "" || fpHash == "" || expiresAt == "" {
+		writeErr(w, http.StatusBadRequest, "missing fp/fph/exp params")
+		return
+	}
+
+	statusURL := fmt.Sprintf("%s/api/auth/cli/status?fingerprintId=%s&fingerprintHash=%s&expiresAt=%s",
+		cfg.Upstream.BaseURL,
+		url.QueryEscape(fpID),
+		url.QueryEscape(fpHash),
+		url.QueryEscape(expiresAt))
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, statusURL, nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	req.Header.Set("User-Agent", "freebuff2api/1.0")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("codebuff: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		writeOK(w, map[string]any{"pending": true})
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("codebuff %d: %s", resp.StatusCode, string(raw)))
+		return
+	}
+
+	var statusResp struct {
+		User *struct {
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			Email     string `json:"email"`
+			AuthToken string `json:"authToken"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(raw, &statusResp); err != nil || statusResp.User == nil {
+		writeOK(w, map[string]any{"pending": true})
+		return
+	}
+	u := statusResp.User
+	if u.AuthToken == "" {
+		writeOK(w, map[string]any{"pending": true})
+		return
+	}
+
+	// Derive a filename from login info.
+	label := sanitizeLabel(u.Email)
+	if label == "" {
+		label = sanitizeLabel(u.Name)
+	}
+	if label == "" {
+		label = "oauth-" + randomHex(4)
+	}
+
+	// Save credential file.
+	dir := cfg.Auth.Dir
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("ensure auths dir: %v", err))
+		return
+	}
+	path := filepath.Join(dir, label+".json")
+	// If label already exists, append random suffix.
+	if _, err := os.Stat(path); err == nil {
+		label = label + "-" + randomHex(3)
+		path = filepath.Join(dir, label+".json")
+	}
+
+	cred := credentialFile{
+		ID:        u.ID,
+		Email:     u.Email,
+		AuthToken: u.AuthToken,
+	}
+	if u.Name != "" {
+		cred.Name = &u.Name
+	}
+	data, _ := json.MarshalIndent(cred, "", "  ")
+	if err := atomicWrite(path, data); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("write: %v", err))
+		return
+	}
+	a.reloader.Reload("oauth-login")
+	writeOK(w, map[string]any{
+		"done":  true,
+		"label": label,
+		"email": u.Email,
+		"name":  u.Name,
+	})
+}
+
+func sanitizeLabel(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.Split(s, "@")[0]
+	s = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, s)
+	if len(s) > 64 {
+		s = s[:64]
+	}
+	return s
+}
+
+func randomHex(n int) string {
+	b := make([]byte, n)
+	io.ReadFull(rand.Reader, b)
+	return fmt.Sprintf("%x", b)
 }
 
 // --------------------------------- helpers ---------------------------------

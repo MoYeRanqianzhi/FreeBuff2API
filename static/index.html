@@ -6,259 +6,168 @@
 <title>FreeBuff2API Admin</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  /* cyan / teal palette */
-  --cyan-deep:#0891b2;   /* cyan-600 */
-  --cyan:#06b6d4;        /* cyan-500 */
-  --teal:#14b8a6;        /* teal-500 */
-  --teal-light:#5eead4;  /* teal-300 */
-  --sky:#7dd3fc;         /* sky-300 */
-  --sky-bright:#67e8f9;  /* cyan-300 */
-  --mint:#a7f3d0;        /* emerald-200 */
-  --ok:#5eead4;--warn:#fbbf24;--err:#f87171;
-  --text:#f0fdfa;--muted:#94b8c4;--mono:#5eead4;
-  --glass:rgba(94,234,212,.08);--glass-strong:rgba(94,234,212,.14);
-  --border:rgba(167,243,208,.18);
-  --shadow:0 8px 32px rgba(6,22,33,.45),0 1px 0 rgba(167,243,208,.06) inset;
-  --ease:cubic-bezier(.4,0,.2,1);
-  --mono-font:'JetBrains Mono','Fira Code','SF Mono',ui-monospace,Menlo,Consolas,monospace;
-}
+:root{--primary:#0ea5e9;--primary-light:#38bdf8;--cyan:#06b6d4;--teal:#14b8a6;--teal-light:#5eead4;--sky:#7dd3fc;--mint:#a7f3d0;--ok:#34d399;--warn:#fbbf24;--err:#f87171;--text:#334155;--muted:#94a3b8;--mono:#0891b2;--ease:cubic-bezier(0.2,0.8,0.2,1);--mono-font:'JetBrains Mono','Fira Code','SF Mono',ui-monospace,Menlo,Consolas,monospace;--glass:rgba(255,255,255,0.45);--glass-strong:rgba(255,255,255,0.65);--glass-hover:rgba(255,255,255,0.6);--border:rgba(255,255,255,0.55);--border-light:rgba(255,255,255,0.8);--shadow:0 8px 32px rgba(14,165,233,0.08),0 1px 1px rgba(255,255,255,0.6) inset;--shadow-hover:0 12px 40px rgba(14,165,233,0.14),0 1px 2px rgba(255,255,255,0.8) inset}
 html,body{height:100%}
-body{
-  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-  color:var(--text);
-  background:#0a1a24;
-  min-height:100vh;
-  overflow-x:hidden;
-  position:relative;
-  line-height:1.5;
-  -webkit-font-smoothing:antialiased;
-}
-body::before{
-  content:"";position:fixed;inset:-20%;z-index:-1;
-  background:
-    radial-gradient(55% 55% at 22% 30%, rgba(8,145,178,.55) 0%, transparent 60%),
-    radial-gradient(50% 50% at 78% 28%, rgba(20,184,166,.50) 0%, transparent 62%),
-    radial-gradient(60% 60% at 50% 85%, rgba(103,232,249,.40) 0%, transparent 65%),
-    radial-gradient(45% 45% at 15% 90%, rgba(167,243,208,.30) 0%, transparent 65%),
-    linear-gradient(135deg,#0a1a24 0%,#0f172a 100%);
-  filter:blur(10px);
-  animation:bgShift 20s ease-in-out infinite;
-}
-@keyframes bgShift{
-  0%,100%{transform:translate3d(0,0,0) scale(1)}
-  33%{transform:translate3d(3%,-2%,0) scale(1.05)}
-  66%{transform:translate3d(-2%,2%,0) scale(1.03)}
-}
-.glass{
-  background:var(--glass);
-  backdrop-filter:blur(20px) saturate(180%);
-  -webkit-backdrop-filter:blur(20px) saturate(180%);
-  border:1px solid var(--border);
-  box-shadow:var(--shadow);
-  border-radius:18px;
-}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--text);background:#eef7fc;min-height:100vh;overflow-x:hidden;position:relative;line-height:1.6;-webkit-font-smoothing:antialiased}
 
-/* enter animation */
-.enter{opacity:0;transform:translateY(16px);animation:enter .4s var(--ease) forwards}
+/* ── 动态流光渐变背景 ── */
+body::before{content:"";position:fixed;inset:-30%;z-index:-2;background:
+  radial-gradient(ellipse 60% 50% at 15% 25%, rgba(186,230,253,0.9) 0%, transparent 55%),
+  radial-gradient(ellipse 50% 60% at 80% 20%, rgba(153,246,228,0.8) 0%, transparent 55%),
+  radial-gradient(ellipse 55% 45% at 50% 70%, rgba(165,243,252,0.7) 0%, transparent 50%),
+  radial-gradient(ellipse 40% 50% at 85% 80%, rgba(167,243,208,0.6) 0%, transparent 50%),
+  radial-gradient(ellipse 45% 40% at 20% 85%, rgba(224,242,254,0.8) 0%, transparent 50%),
+  linear-gradient(160deg,#f0f9ff 0%,#e0f7fa 40%,#ecfdf5 100%);
+  animation:bgFlow 18s ease-in-out infinite alternate}
+body::after{content:"";position:fixed;inset:-30%;z-index:-1;background:
+  radial-gradient(ellipse 35% 35% at 30% 40%, rgba(103,232,249,0.35) 0%, transparent 60%),
+  radial-gradient(ellipse 30% 30% at 70% 60%, rgba(94,234,212,0.3) 0%, transparent 60%);
+  animation:bgGlow 12s ease-in-out infinite alternate-reverse;filter:blur(60px)}
+@keyframes bgFlow{0%{transform:translate3d(0,0,0) scale(1) rotate(0deg)} 33%{transform:translate3d(3%,2%,0) scale(1.04) rotate(0.5deg)} 66%{transform:translate3d(-2%,4%,0) scale(1.06) rotate(-0.3deg)} 100%{transform:translate3d(1%,-2%,0) scale(1.02) rotate(0.2deg)}}
+@keyframes bgGlow{0%{transform:translate3d(5%,-3%,0) scale(1)} 50%{transform:translate3d(-5%,5%,0) scale(1.15)} 100%{transform:translate3d(3%,2%,0) scale(1.05)}}
+
+/* ── 浮动流光粒子（二次元风格点缀） ── */
+body>.orb{position:fixed;border-radius:50%;pointer-events:none;z-index:-1;filter:blur(1px);opacity:0;animation:orbFloat linear infinite}
+@keyframes orbFloat{0%{opacity:0;transform:translateY(100vh) scale(0.3)} 10%{opacity:0.7} 80%{opacity:0.5} 100%{opacity:0;transform:translateY(-20vh) scale(1)}}
+
+/* ── 液态玻璃组件 ── */
+.glass{background:var(--glass);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);border:1px solid var(--border);box-shadow:var(--shadow);border-radius:22px;position:relative}
+.glass::before{content:"";position:absolute;top:0;left:10%;right:10%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.8),transparent);pointer-events:none;border-radius:inherit}
+.glass::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(255,255,255,0.7) 0%,rgba(255,255,255,0.15) 40%,rgba(167,243,208,0.2) 60%,rgba(255,255,255,0.6) 100%);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+
+.enter{opacity:0;transform:translateY(18px);animation:enter .55s var(--ease) forwards}
 @keyframes enter{to{opacity:1;transform:translateY(0)}}
 
-/* layout */
 #app{min-height:100vh;display:flex;flex-direction:column}
-header.topbar{
-  padding:16px 28px;display:flex;align-items:center;gap:18px;
-  backdrop-filter:blur(16px);
-  background:rgba(10,26,36,.55);
-  border-bottom:1px solid var(--border);
-  position:sticky;top:0;z-index:40;
-}
-.brand{font-weight:700;letter-spacing:.3px;font-size:17px;display:flex;align-items:center;gap:10px}
-.brand-dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--teal-light));box-shadow:0 0 14px var(--teal)}
+
+/* ── 顶栏 ── */
+header.topbar{padding:14px 32px;display:flex;align-items:center;gap:20px;backdrop-filter:blur(20px) saturate(150%);background:rgba(255,255,255,.35);border-bottom:1px solid rgba(255,255,255,0.5);box-shadow:0 4px 24px rgba(14,165,233,.04);position:sticky;top:0;z-index:40}
+.brand{font-weight:800;letter-spacing:.3px;font-size:18px;display:flex;align-items:center;gap:10px;background:linear-gradient(135deg,var(--cyan),var(--teal));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.brand-dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--primary-light),var(--teal-light));box-shadow:0 0 12px rgba(56,189,248,0.5);animation:dotPulse 3s ease-in-out infinite}
+@keyframes dotPulse{0%,100%{box-shadow:0 0 8px rgba(56,189,248,0.4);transform:scale(1)}50%{box-shadow:0 0 18px rgba(94,234,212,0.6);transform:scale(1.15)}}
 .tabs{display:flex;gap:6px;margin-left:20px}
-.tab{
-  padding:8px 18px;border-radius:12px;cursor:pointer;
-  color:var(--muted);font-size:14px;font-weight:500;
-  transition:all .25s var(--ease);background:transparent;border:none;
-}
-.tab:hover{color:var(--text);background:rgba(94,234,212,.08)}
-.tab.active{color:var(--text);background:var(--glass-strong);box-shadow:inset 0 0 0 1px var(--border)}
+.tab{padding:7px 18px;border-radius:12px;cursor:pointer;color:var(--muted);font-size:13.5px;font-weight:600;transition:all .3s var(--ease);background:transparent;border:none}
+.tab:hover{color:var(--primary);background:rgba(255,255,255,0.45)}
+.tab.active{color:var(--primary);background:var(--glass-strong);box-shadow:0 4px 12px rgba(14,165,233,0.06),inset 0 1px 1px rgba(255,255,255,0.8)}
 .spacer{flex:1}
-.btn{
-  border:none;cursor:pointer;font:inherit;color:var(--text);
-  padding:10px 18px;border-radius:12px;font-size:14px;font-weight:500;
-  transition:all .2s var(--ease);position:relative;overflow:hidden;
-  display:inline-flex;align-items:center;gap:8px;
-}
+
+/* ── 按钮 ── */
+.btn{border:none;cursor:pointer;font:inherit;color:var(--text);padding:9px 18px;border-radius:14px;font-size:13.5px;font-weight:600;transition:all .3s var(--ease);position:relative;overflow:hidden;display:inline-flex;align-items:center;gap:7px}
 .btn:disabled{opacity:.5;cursor:not-allowed}
-.btn-primary{
-  background:linear-gradient(135deg,var(--cyan),var(--teal));
-  box-shadow:0 6px 20px rgba(20,184,166,.38);
-  color:#022c22;
-  font-weight:600;
-}
-.btn-primary:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 10px 28px rgba(20,184,166,.55)}
+.btn-primary{background:linear-gradient(135deg,var(--primary),var(--teal));box-shadow:0 6px 20px rgba(14,165,233,.2),inset 0 1px 2px rgba(255,255,255,.3);color:#fff}
+.btn-primary:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 10px 28px rgba(14,165,233,.28),inset 0 1px 2px rgba(255,255,255,.4)}
 .btn-primary:active:not(:disabled){transform:translateY(0) scale(.97)}
-.btn-ghost{background:var(--glass);border:1px solid var(--border);backdrop-filter:blur(10px)}
-.btn-ghost:hover:not(:disabled){background:var(--glass-strong)}
-.btn-danger{background:linear-gradient(135deg,#f87171,#b91c1c);box-shadow:0 4px 16px rgba(248,113,113,.35)}
-.btn-danger:hover:not(:disabled){transform:translateY(-1px)}
-.btn-sm{padding:6px 12px;font-size:12.5px;border-radius:9px}
-.btn .ripple{position:absolute;border-radius:50%;transform:scale(0);background:rgba(255,255,255,.4);animation:ripple .6s var(--ease);pointer-events:none}
+.btn-ghost{background:rgba(255,255,255,0.4);border:1px solid var(--border);backdrop-filter:blur(12px)}
+.btn-ghost:hover:not(:disabled){background:rgba(255,255,255,0.6);box-shadow:var(--shadow-hover);color:var(--primary)}
+.btn-danger{background:linear-gradient(135deg,#fca5a5,#f87171);box-shadow:0 6px 20px rgba(248,113,113,.2);color:#fff}
+.btn-danger:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 10px 28px rgba(248,113,113,.3)}
+.btn-sm{padding:5px 12px;font-size:12.5px;border-radius:10px}
+.btn .ripple{position:absolute;border-radius:50%;transform:scale(0);background:rgba(255,255,255,.45);animation:ripple .6s var(--ease);pointer-events:none}
 @keyframes ripple{to{transform:scale(3.5);opacity:0}}
 
-main{flex:1;padding:28px;max-width:1200px;margin:0 auto;width:100%}
+main{flex:1;padding:36px 32px;max-width:1100px;margin:0 auto;width:100%}
 
-/* ---------- Login ---------- */
+/* ── 登录 ── */
 .center-wrap{min-height:calc(100vh - 140px);display:flex;align-items:center;justify-content:center;padding:24px}
-.login-card{width:100%;max-width:420px;padding:38px 34px}
-.login-card h1{font-size:24px;margin-bottom:6px;background:linear-gradient(135deg,#fff,var(--sky-bright));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.login-card p{color:var(--muted);font-size:14px;margin-bottom:24px}
-.field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
-.field label{font-size:12.5px;color:var(--muted);font-weight:500;letter-spacing:.2px}
-.input,.textarea{
-  width:100%;padding:12px 14px;border-radius:11px;
-  background:rgba(94,234,212,.06);border:1px solid var(--border);
-  color:var(--text);font:inherit;font-size:14px;
-  transition:border-color .2s,background .2s,box-shadow .2s;
-  outline:none;
-}
-.input:focus,.textarea:focus{border-color:var(--teal-light);background:rgba(94,234,212,.1);box-shadow:0 0 0 3px rgba(94,234,212,.15)}
+.login-card{width:100%;max-width:420px;padding:44px 36px;text-align:center}
+.login-card h1{font-size:28px;font-weight:800;margin-bottom:10px;background:linear-gradient(135deg,var(--cyan),var(--teal));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-.3px}
+.login-card p{color:var(--muted);font-size:14px;margin-bottom:28px}
+
+.field{display:flex;flex-direction:column;gap:7px;margin-bottom:22px;text-align:left}
+.field label{font-size:12.5px;color:var(--text);font-weight:600;letter-spacing:.3px;padding-left:4px}
+.input,.textarea{width:100%;padding:12px 16px;border-radius:14px;background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,0.6);color:var(--text);font:inherit;font-size:14px;transition:all .3s var(--ease);outline:none;box-shadow:inset 0 2px 4px rgba(0,0,0,.02)}
+.input:focus,.textarea:focus{border-color:var(--teal-light);background:rgba(255,255,255,.8);box-shadow:0 0 0 3px rgba(94,234,212,.2),inset 0 1px 3px rgba(0,0,0,.01)}
 .input.mono,.textarea.mono{font-family:var(--mono-font);font-size:13px}
-.textarea{min-height:200px;resize:vertical;line-height:1.55}
+.textarea{min-height:220px;resize:vertical;line-height:1.6}
 
-/* ---------- Stats ---------- */
-.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:28px}
-.stat{padding:22px 24px;position:relative;overflow:hidden}
-.stat .label{font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px;font-weight:600}
-.stat .value{font-size:38px;font-weight:700;margin-top:10px;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
-.stat .accent{position:absolute;right:-20px;top:-20px;width:110px;height:110px;border-radius:50%;opacity:.28;filter:blur(22px)}
-.stat.total .accent{background:var(--cyan)}
-.stat.healthy .accent{background:var(--teal-light)}
-.stat.breaker .accent{background:var(--err)}
+/* ── 统计卡片 ── */
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:36px}
+.stat{padding:24px 26px;position:relative;overflow:hidden;transition:transform .35s var(--ease),box-shadow .35s var(--ease)}
+.stat:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover)}
+.stat .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700}
+.stat .value{font-size:40px;font-weight:800;margin-top:10px;letter-spacing:-1px;font-variant-numeric:tabular-nums;color:var(--text)}
+.stat .accent{position:absolute;right:-30px;top:-30px;width:120px;height:120px;border-radius:50%;opacity:.4;filter:blur(25px);transition:all .6s var(--ease)}
+.stat:hover .accent{transform:scale(1.3);opacity:.6}
+.stat.total .accent{background:var(--sky)}
+.stat.healthy .accent{background:var(--mint)}
+.stat.breaker .accent{background:rgba(248,113,113,0.6)}
 
-/* ---------- Keys table ---------- */
-.section-title{font-size:16px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:10px}
-.table{display:flex;flex-direction:column;gap:10px}
-.row{
-  display:grid;
-  grid-template-columns:minmax(170px,1.4fr) 1.2fr 1fr 1fr auto;
-  align-items:center;gap:18px;padding:16px 20px;
-  transition:transform .2s var(--ease),background .2s;
-}
-.row:hover{background:var(--glass-strong);transform:translateX(2px)}
-.fp{font-family:var(--mono-font);font-size:13px;color:var(--mono);letter-spacing:.3px}
-.lbl{color:var(--muted);font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.status{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500}
+/* ── Key 表格 ── */
+.section-title{font-size:17px;font-weight:700;margin-bottom:18px;display:flex;align-items:center;gap:10px;color:var(--text);padding-left:4px}
+.table{display:flex;flex-direction:column;gap:12px}
+.row{display:grid;grid-template-columns:minmax(160px,1.4fr) 1.2fr 1fr 1fr auto;align-items:center;gap:18px;padding:16px 22px;transition:all .3s var(--ease)}
+.row:hover{background:var(--glass-hover);transform:translateX(3px);box-shadow:var(--shadow-hover)}
+.fp{font-family:var(--mono-font);font-size:13px;color:var(--mono);letter-spacing:.3px;font-weight:500}
+.lbl{color:var(--text);font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text)}
 .dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}
-.dot.ok{background:var(--ok);box-shadow:0 0 0 0 rgba(94,234,212,.6);animation:pulse-ok 2.2s infinite}
-.dot.err{background:var(--err);animation:breath 1.8s ease-in-out infinite}
-.dot.warn{background:var(--warn);box-shadow:0 0 10px var(--warn)}
-@keyframes pulse-ok{0%{box-shadow:0 0 0 0 rgba(94,234,212,.6)}70%{box-shadow:0 0 0 10px rgba(94,234,212,0)}100%{box-shadow:0 0 0 0 rgba(94,234,212,0)}}
-@keyframes breath{0%,100%{opacity:.55;transform:scale(.88)}50%{opacity:1;transform:scale(1.15)}}
-.countdown{font-family:var(--mono-font);font-size:12.5px;color:var(--warn)}
+.dot.ok{background:var(--ok);box-shadow:0 0 0 0 rgba(52,211,153,.4);animation:pulse-ok 2.5s infinite}
+.dot.err{background:var(--err);animation:breath 2s ease-in-out infinite;box-shadow:0 0 10px rgba(248,113,113,.4)}
+.dot.warn{background:var(--warn);box-shadow:0 0 10px rgba(251,191,36,.3)}
+@keyframes pulse-ok{0%{box-shadow:0 0 0 0 rgba(52,211,153,.45)}70%{box-shadow:0 0 0 10px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+@keyframes breath{0%,100%{opacity:.65;transform:scale(.9)}50%{opacity:1;transform:scale(1.15)}}
+.countdown{font-family:var(--mono-font);font-size:13px;color:var(--warn);font-weight:600}
 .actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
-.empty{padding:40px;text-align:center;color:var(--muted)}
+.empty{padding:44px;text-align:center;color:var(--muted);font-weight:500;font-size:14px}
 
-/* FAB */
-.fab{
-  position:fixed;right:32px;bottom:32px;z-index:30;
-  width:58px;height:58px;border-radius:50%;border:none;cursor:pointer;
-  background:linear-gradient(135deg,var(--cyan),var(--teal),var(--sky-bright));
-  color:#022c22;font-size:28px;font-weight:400;
-  box-shadow:0 10px 30px rgba(20,184,166,.55);
-  transition:all .25s var(--ease);
-  display:flex;align-items:center;justify-content:center;
-}
-.fab:hover{transform:translateY(-3px) rotate(90deg);box-shadow:0 14px 40px rgba(94,234,212,.7)}
-.fab:active{transform:scale(.95)}
+/* ── FAB ── */
+.fab{position:fixed;right:36px;bottom:90px;z-index:30;width:58px;height:58px;border-radius:50%;border:none;cursor:pointer;background:linear-gradient(135deg,var(--primary),var(--teal));color:#fff;font-size:28px;font-weight:300;line-height:1;box-shadow:0 10px 30px rgba(14,165,233,.25),inset 0 1px 3px rgba(255,255,255,.3);transition:all .35s var(--ease);display:flex;align-items:center;justify-content:center}
+.fab:hover{transform:translateY(-4px) rotate(90deg);box-shadow:0 14px 38px rgba(14,165,233,.35),inset 0 1px 3px rgba(255,255,255,.5)}
+.fab:active{transform:scale(.92) rotate(90deg)}
 
-/* modal */
-.modal-backdrop{
-  position:fixed;inset:0;z-index:50;
-  background:rgba(5,20,28,.6);
-  backdrop-filter:blur(8px);
-  display:flex;align-items:center;justify-content:center;
-  opacity:0;pointer-events:none;transition:opacity .25s var(--ease);
-}
+/* ── Modal ── */
+.modal-backdrop{position:fixed;inset:0;z-index:50;background:rgba(240,249,255,.4);backdrop-filter:blur(16px) saturate(150%);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .3s var(--ease)}
 .modal-backdrop.show{opacity:1;pointer-events:auto}
-.modal{
-  width:100%;max-width:440px;padding:30px;margin:16px;
-  transform:translateY(24px) scale(.96);
-  transition:transform .35s var(--ease);
-}
+.modal{width:100%;max-width:460px;padding:36px;margin:20px;transform:translateY(25px) scale(.95);transition:all .4s var(--ease)}
 .modal-backdrop.show .modal{transform:translateY(0) scale(1)}
-.modal h2{font-size:18px;margin-bottom:6px}
-.modal .subtitle{color:var(--muted);font-size:13px;margin-bottom:20px}
-.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+.modal h2{font-size:20px;font-weight:800;margin-bottom:8px;color:var(--text)}
+.modal .subtitle{color:var(--muted);font-size:14px;margin-bottom:24px}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:28px}
 
-/* config editor */
-.cfg-bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
-.cfg-dirty{color:var(--warn);font-size:13px;font-weight:500;display:none}
+/* ── Config 编辑器 ── */
+.cfg-bar{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;padding-left:4px}
+.cfg-dirty{color:var(--warn);font-size:13px;font-weight:600;display:none}
 .cfg-dirty.show{display:inline-flex;align-items:center;gap:6px}
-.editor-wrap{
-  display:grid;grid-template-columns:auto 1fr;gap:0;
-  border-radius:14px;overflow:hidden;
-  background:rgba(8,22,30,.7);
-  border:1px solid var(--border);
-}
-.linenos{
-  padding:14px 10px;background:rgba(0,0,0,.3);
-  font-family:var(--mono-font);font-size:13px;color:rgba(167,243,208,.3);
-  text-align:right;user-select:none;line-height:1.55;min-width:44px;
-  white-space:pre;overflow:hidden;
-}
-.editor{
-  width:100%;min-height:480px;padding:14px 16px;
-  background:transparent;border:none;outline:none;
-  color:var(--text);font-family:var(--mono-font);font-size:13px;line-height:1.55;
-  resize:vertical;white-space:pre;tab-size:2;
-}
+.editor-wrap{display:grid;grid-template-columns:auto 1fr;gap:0;border-radius:22px;overflow:hidden;background:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,0.65);box-shadow:inset 0 2px 8px rgba(0,0,0,.015),var(--shadow)}
+.linenos{padding:16px 12px;background:rgba(14,165,233,.03);font-family:var(--mono-font);font-size:13px;color:var(--primary);opacity:.6;text-align:right;user-select:none;line-height:1.6;min-width:50px;white-space:pre;overflow:hidden;border-right:1px solid rgba(14,165,233,.08)}
+.editor{width:100%;min-height:520px;padding:16px 22px;background:transparent;border:none;outline:none;color:var(--text);font-family:var(--mono-font);font-size:13px;line-height:1.6;resize:vertical;white-space:pre;tab-size:2}
 
-/* toast */
-#toasts{
-  position:fixed;top:24px;left:50%;transform:translateX(-50%);
-  z-index:100;display:flex;flex-direction:column;gap:10px;pointer-events:none;
-}
-.toast{
-  padding:12px 20px;border-radius:12px;font-size:14px;font-weight:500;
-  min-width:220px;max-width:480px;
-  backdrop-filter:blur(14px);
-  border:1px solid var(--border);
-  box-shadow:var(--shadow);
-  animation:toast-in .3s var(--ease) forwards,toast-out .3s var(--ease) 2.7s forwards;
-  pointer-events:auto;
-}
-.toast.success{background:rgba(94,234,212,.18);color:#a7f3d0;border-color:rgba(94,234,212,.5)}
-.toast.error{background:rgba(248,113,113,.18);color:#fecaca;border-color:rgba(248,113,113,.5)}
-@keyframes toast-in{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:translateY(0)}}
-@keyframes toast-out{to{opacity:0;transform:translateY(-14px)}}
+/* ── Toast ── */
+#toasts{position:fixed;top:28px;left:50%;transform:translateX(-50%);z-index:100;display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.toast{padding:14px 24px;border-radius:16px;font-size:13.5px;font-weight:600;min-width:240px;max-width:460px;backdrop-filter:blur(20px) saturate(150%);border:1px solid rgba(255,255,255,0.6);box-shadow:0 8px 24px rgba(0,0,0,.04),inset 0 1px 1px rgba(255,255,255,0.6);animation:toast-in .4s var(--ease) forwards,toast-out .4s var(--ease) 2.6s forwards;pointer-events:auto;text-align:center}
+.toast.success{background:rgba(236,253,245,.8);color:#059669}
+.toast.error{background:rgba(254,242,242,.8);color:#dc2626}
+@keyframes toast-in{from{opacity:0;transform:translateY(-20px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes toast-out{to{opacity:0;transform:translateY(-20px) scale(.96)}}
 
-/* footer */
-footer.botbar{
-  padding:14px 28px;
-  border-top:1px solid var(--border);
-  background:rgba(10,26,36,.55);
-  backdrop-filter:blur(16px);
-  display:flex;justify-content:space-between;align-items:center;
-  font-size:12.5px;color:var(--muted);
-}
-.version{font-family:var(--mono-font);opacity:.7}
+/* ── 底栏 ── */
+footer.botbar{padding:16px 32px;border-top:1px solid rgba(255,255,255,0.5);background:rgba(255,255,255,.3);backdrop-filter:blur(20px) saturate(140%);display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--muted);font-weight:500}
+.version{font-family:var(--mono-font);opacity:.7;color:var(--primary)}
 
-/* responsive */
-@media(max-width:720px){
-  main{padding:18px}
-  header.topbar{padding:12px 16px;gap:10px;flex-wrap:wrap}
-  .tabs{margin-left:0;order:3;width:100%}
-  .stat-row{grid-template-columns:1fr}
-  .row{
-    grid-template-columns:1fr;
-    gap:10px;
-  }
-  .row .fp{font-size:12.5px}
-  .actions{justify-content:flex-start}
-  .fab{right:18px;bottom:18px;width:52px;height:52px}
-}
-
+/* ── 响应式 ── */
+@media(max-width:768px){main{padding:24px 18px} header.topbar{padding:12px 18px;gap:10px;flex-wrap:wrap} .tabs{margin-left:0;order:3;width:100%} .stat-row{grid-template-columns:1fr;gap:14px;margin-bottom:24px} .row{grid-template-columns:1fr;gap:10px;padding:14px 18px} .row .fp{font-size:12.5px} .actions{justify-content:flex-start} .fab{right:18px;bottom:80px;width:50px;height:50px;font-size:24px} .editor-wrap{border-radius:16px}}
+/* ── Config 可视化面板 ── */
+.cfg-panels{display:flex;flex-direction:column;gap:20px}
+.cfg-panel{padding:24px 26px}
+.cfg-panel .panel-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.cfg-panel .panel-title .icon{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,var(--primary),var(--teal))}
+.cfg-field{display:grid;grid-template-columns:160px 1fr;gap:10px 16px;align-items:center;margin-bottom:12px}
+.cfg-field:last-child{margin-bottom:0}
+.cfg-field .cfg-label{font-size:12.5px;color:var(--muted);font-weight:600;text-align:right;letter-spacing:.3px}
+.cfg-field .cfg-input{padding:9px 14px;border-radius:12px;background:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,0.6);font:inherit;font-size:13.5px;color:var(--text);outline:none;transition:all .3s var(--ease)}
+.cfg-field .cfg-input:focus{border-color:var(--teal-light);background:rgba(255,255,255,.75);box-shadow:0 0 0 3px rgba(94,234,212,.15)}
+.cfg-field select.cfg-input{cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+.cfg-mode-toggle{display:flex;gap:4px;padding:3px;border-radius:12px;background:rgba(255,255,255,.4);border:1px solid var(--border)}
+.cfg-mode-toggle .mode-btn{padding:6px 16px;border-radius:9px;border:none;cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;color:var(--muted);background:transparent;transition:all .25s var(--ease)}
+.cfg-mode-toggle .mode-btn.active{color:var(--primary);background:rgba(255,255,255,.7);box-shadow:0 2px 8px rgba(14,165,233,.08)}
+/* ── 添加 key 文件上传 ── */
+.file-drop{border:2px dashed rgba(14,165,233,.2);border-radius:14px;padding:20px;text-align:center;cursor:pointer;color:var(--muted);font-size:13px;transition:all .3s var(--ease);background:rgba(255,255,255,.3)}
+.file-drop:hover,.file-drop.dragover{border-color:var(--teal-light);background:rgba(236,253,245,.4);color:var(--teal)}
+.file-drop input{display:none}
+.or-divider{text-align:center;color:var(--muted);font-size:12px;margin:12px 0;position:relative}
+.or-divider::before,.or-divider::after{content:'';position:absolute;top:50%;width:calc(50% - 20px);height:1px;background:rgba(148,163,184,.2)}
+.or-divider::before{left:0}
+.or-divider::after{right:0}
 .hidden{display:none!important}
 </style>
 </head>
@@ -268,429 +177,621 @@ footer.botbar{
 
 <script>
 'use strict';
-
-/* ==================== state ==================== */
 const State = {
-  token: localStorage.getItem('freebuff_admin_token') || '',
-  tab: 'dashboard',
-  status: null,
-  configYaml: '',
-  configOriginal: '',
-  countdownTimer: null,
-  pollTimer: null,
+token: localStorage.getItem('freebuff_admin_token') || '',
+tab: 'dashboard',
+status: null,
+configYaml: '',
+configOriginal: '',
+countdownTimer: null,
+pollTimer: null,
 };
-
 const TOKEN_KEY = 'freebuff_admin_token';
-
-/* ==================== API ==================== */
 async function api(path, opts={}){
-  const headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
-  if(State.token) headers['X-Admin-Token'] = State.token;
-  let res;
-  try{
-    res = await fetch(path,{...opts,headers});
-  }catch(e){
-    throw new Error('网络错误: '+e.message);
-  }
-  if(res.status===401){
-    State.token='';
-    localStorage.removeItem(TOKEN_KEY);
-    render();
-    throw new Error('未授权');
-  }
-  let body;
-  try{ body = await res.json(); }catch{ body = {ok:false,error:'响应非 JSON'}; }
-  if(!body.ok) throw new Error(body.error||('HTTP '+res.status));
-  return body.data;
+const headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
+if(State.token) headers['X-Admin-Token'] = State.token;
+let res;
+try{
+res = await fetch(path,{...opts,headers});
+}catch(e){
+throw new Error('网络错误: '+e.message);
 }
-
+if(res.status===401){
+State.token='';
+localStorage.removeItem(TOKEN_KEY);
+render();
+throw new Error('未授权');
+}
+let body;
+try{ body = await res.json(); }catch{ body = {ok:false,error:'响应非 JSON'}; }
+if(!body.ok) throw new Error(body.error||('HTTP '+res.status));
+return body.data;
+}
 const API = {
-  status:       ()=>api('/admin/api/status'),
-  getConfig:    ()=>api('/admin/api/config'),
-  putConfig:    (yaml)=>api('/admin/api/config',{method:'PUT',body:JSON.stringify({yaml})}),
-  addKey:       (label,token)=>api('/admin/api/keys',{method:'POST',body:JSON.stringify({label,token})}),
-  delKey:       (label)=>api('/admin/api/keys/'+encodeURIComponent(label),{method:'DELETE'}),
-  trip:         (idx)=>api('/admin/api/keys/'+idx+'/trip',{method:'POST'}),
-  reset:        (idx)=>api('/admin/api/keys/'+idx+'/reset',{method:'POST'}),
-  reload:       ()=>api('/admin/api/reload',{method:'POST'}),
+status:       ()=>api('/admin/api/status'),
+getConfig:    ()=>api('/admin/api/config'),
+putConfig:    (yaml)=>api('/admin/api/config',{method:'PUT',body:JSON.stringify({yaml})}),
+addKey:       (label,token)=>api('/admin/api/keys',{method:'POST',body:JSON.stringify({label,token})}),
+delKey:       (label)=>api('/admin/api/keys/'+encodeURIComponent(label),{method:'DELETE'}),
+trip:         (idx)=>api('/admin/api/keys/'+idx+'/trip',{method:'POST'}),
+reset:        (idx)=>api('/admin/api/keys/'+idx+'/reset',{method:'POST'}),
+reload:       ()=>api('/admin/api/reload',{method:'POST'}),
+oauthStart:   ()=>api('/admin/api/oauth/start',{method:'POST'}),
+oauthPoll:    (fp,fph,exp)=>api(`/admin/api/oauth/poll?fp=${encodeURIComponent(fp)}&fph=${encodeURIComponent(fph)}&exp=${encodeURIComponent(exp)}`),
 };
-
-/* ==================== toast ==================== */
 function toast(msg,type='success'){
-  const root=document.getElementById('toasts');
-  const t=document.createElement('div');
-  t.className='toast '+type;
-  t.textContent=msg;
-  root.appendChild(t);
-  setTimeout(()=>t.remove(),3100);
+const root=document.getElementById('toasts');
+const t=document.createElement('div');
+t.className='toast '+type;
+t.textContent=msg;
+root.appendChild(t);
+setTimeout(()=>t.remove(),3100);
 }
-
-/* ==================== helpers ==================== */
 function h(tag,attrs={},...kids){
-  const el=document.createElement(tag);
-  for(const k in attrs){
-    const v=attrs[k];
-    if(k==='class') el.className=v;
-    else if(k==='html') el.innerHTML=v;
-    else if(k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(),v);
-    else if(v===true) el.setAttribute(k,'');
-    else if(v!==false&&v!=null) el.setAttribute(k,v);
-  }
-  for(const kid of kids.flat()){
-    if(kid==null||kid===false) continue;
-    el.appendChild(typeof kid==='string'?document.createTextNode(kid):kid);
-  }
-  return el;
+const el=document.createElement(tag);
+for(const k in attrs){
+const v=attrs[k];
+if(k==='class') el.className=v;
+else if(k==='html') el.innerHTML=v;
+else if(k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(),v);
+else if(v===true) el.setAttribute(k,'');
+else if(v!==false&&v!=null) el.setAttribute(k,v);
+}
+for(const kid of kids.flat()){
+if(kid==null||kid===false) continue;
+el.appendChild(typeof kid==='string'?document.createTextNode(kid):kid);
+}
+return el;
 }
 function fmtDuration(ms){
-  if(ms<=0) return '0s';
-  const s=Math.floor(ms/1000);
-  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
-  if(h>0) return `${h}h ${m}m`;
-  if(m>0) return `${m}m ${sec}s`;
-  return `${sec}s`;
+if(ms<=0) return '0s';
+const s=Math.floor(ms/1000);
+const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
+if(h>0) return `${h}h ${m}m`;
+if(m>0) return `${m}m ${sec}s`;
+return `${sec}s`;
 }
 function rippleEffect(e){
-  const b=e.currentTarget, r=b.getBoundingClientRect();
-  const s=document.createElement('span');
-  s.className='ripple';
-  const size=Math.max(r.width,r.height);
-  s.style.width=s.style.height=size+'px';
-  s.style.left=(e.clientX-r.left-size/2)+'px';
-  s.style.top=(e.clientY-r.top-size/2)+'px';
-  b.appendChild(s);
-  setTimeout(()=>s.remove(),600);
+const b=e.currentTarget, r=b.getBoundingClientRect();
+const s=document.createElement('span');
+s.className='ripple';
+const size=Math.max(r.width,r.height);
+s.style.width=s.style.height=size+'px';
+s.style.left=(e.clientX-r.left-size/2)+'px';
+s.style.top=(e.clientY-r.top-size/2)+'px';
+b.appendChild(s);
+setTimeout(()=>s.remove(),600);
 }
 function confirmModal(message){
-  return new Promise(resolve=>{
-    const backdrop=h('div',{class:'modal-backdrop show'});
-    const modal=h('div',{class:'glass modal'},
-      h('h2',{},'确认'),
-      h('div',{class:'subtitle'},message),
-      h('div',{class:'modal-actions'},
-        h('button',{class:'btn btn-ghost',onclick:close(false)},'取消'),
-        h('button',{class:'btn btn-danger',onclick:close(true)},'确认'),
-      )
-    );
-    backdrop.appendChild(modal);
-    document.body.appendChild(backdrop);
-    function close(ok){return ()=>{backdrop.remove();resolve(ok)}}
-    backdrop.addEventListener('click',e=>{if(e.target===backdrop){backdrop.remove();resolve(false)}});
-    const esc=e=>{if(e.key==='Escape'){document.removeEventListener('keydown',esc);backdrop.remove();resolve(false)}};
-    document.addEventListener('keydown',esc);
-  });
+return new Promise(resolve=>{
+const backdrop=h('div',{class:'modal-backdrop show'});
+const modal=h('div',{class:'glass modal'},
+h('h2',{},'确认'),
+h('div',{class:'subtitle'},message),
+h('div',{class:'modal-actions'},
+h('button',{class:'btn btn-ghost',onclick:close(false)},'取消'),
+h('button',{class:'btn btn-danger',onclick:close(true)},'确认'),
+)
+);
+backdrop.appendChild(modal);
+document.body.appendChild(backdrop);
+function close(ok){return ()=>{backdrop.remove();resolve(ok)}}
+backdrop.addEventListener('click',e=>{if(e.target===backdrop){backdrop.remove();resolve(false)}});
+const esc=e=>{if(e.key==='Escape'){document.removeEventListener('keydown',esc);backdrop.remove();resolve(false)}};
+document.addEventListener('keydown',esc);
+});
 }
-
-/* ==================== count-up ==================== */
 function countUp(el,target,dur=700){
-  const start=parseInt(el.dataset.val||'0',10);
-  const t0=performance.now();
-  function step(now){
-    const p=Math.min(1,(now-t0)/dur);
-    const eased=1-Math.pow(1-p,3);
-    el.textContent=Math.round(start+(target-start)*eased);
-    if(p<1) requestAnimationFrame(step);
-    else el.dataset.val=target;
-  }
-  requestAnimationFrame(step);
+const start=parseInt(el.dataset.val||'0',10);
+const t0=performance.now();
+function step(now){
+const p=Math.min(1,(now-t0)/dur);
+const eased=1-Math.pow(1-p,3);
+el.textContent=Math.round(start+(target-start)*eased);
+if(p<1) requestAnimationFrame(step);
+else el.dataset.val=target;
 }
-
-/* ==================== render ==================== */
+requestAnimationFrame(step);
+}
 function render(){
-  stopPolling();stopCountdown();
-  const app=document.getElementById('app');
-  app.innerHTML='';
-  if(!State.token){ app.appendChild(renderLogin()); return; }
-  app.appendChild(renderTopbar());
-  const main=h('main');
-  if(State.tab==='dashboard'){
-    main.appendChild(renderDashboard());
-    startPolling();
-    startCountdown();
-  }else{
-    main.appendChild(renderConfig());
-  }
-  app.appendChild(main);
-  app.appendChild(renderFooter());
+stopPolling();stopCountdown();
+const app=document.getElementById('app');
+app.innerHTML='';
+if(!State.token){ app.appendChild(renderLogin()); return; }
+app.appendChild(renderTopbar());
+const main=h('main');
+if(State.tab==='dashboard'){
+main.appendChild(renderDashboard());
+startPolling();
+startCountdown();
+}else{
+main.appendChild(renderConfig());
 }
-
+app.appendChild(main);
+app.appendChild(renderFooter());
+}
 function renderLogin(){
-  const input=h('input',{class:'input mono',type:'password',placeholder:'admin token',autofocus:true});
-  const submit=async ()=>{
-    const v=input.value.trim();
-    if(!v){toast('请输入 token','error');return}
-    State.token=v;
-    localStorage.setItem(TOKEN_KEY,v);
-    try{
-      await API.status();
-      toast('登录成功');
-      render();
-    }catch(e){
-      State.token='';localStorage.removeItem(TOKEN_KEY);
-      toast(e.message,'error');
-    }
-  };
-  input.addEventListener('keydown',e=>{if(e.key==='Enter') submit()});
-  const btn=h('button',{class:'btn btn-primary',style:'width:100%;justify-content:center',onclick:e=>{rippleEffect(e);submit()}},'登录');
-  return h('div',{class:'center-wrap'},
-    h('div',{class:'glass login-card enter'},
-      h('h1',{},'FreeBuff2API'),
-      h('p',{},'请输入管理员 Token 以继续'),
-      h('div',{class:'field'},h('label',{},'Admin Token'),input),
-      btn,
-    )
-  );
+const input=h('input',{class:'input mono',type:'password',placeholder:'admin token',autofocus:true});
+const submit=async ()=>{
+const v=input.value.trim();
+if(!v){toast('请输入 token','error');return}
+State.token=v;
+localStorage.setItem(TOKEN_KEY,v);
+try{
+await API.status();
+toast('登录成功');
+render();
+}catch(e){
+State.token='';localStorage.removeItem(TOKEN_KEY);
+toast(e.message,'error');
 }
-
+};
+input.addEventListener('keydown',e=>{if(e.key==='Enter') submit()});
+const btn=h('button',{class:'btn btn-primary',style:'width:100%;justify-content:center',onclick:e=>{rippleEffect(e);submit()}},'登录');
+return h('div',{class:'center-wrap'},
+h('div',{class:'glass login-card enter'},
+h('h1',{},'FreeBuff2API'),
+h('p',{},'请输入管理员 Token 以继续'),
+h('div',{class:'field'},h('label',{},'Admin Token'),input),
+btn,
+)
+);
+}
 function renderTopbar(){
-  const mkTab=(id,label)=>h('button',{
-    class:'tab'+(State.tab===id?' active':''),
-    onclick:()=>{State.tab=id;render()},
-  },label);
-  const logout=h('button',{class:'btn btn-ghost btn-sm',onclick:()=>{
-    State.token='';localStorage.removeItem(TOKEN_KEY);toast('已退出');render();
-  }},'退出登录');
-  return h('header',{class:'topbar'},
-    h('div',{class:'brand'},h('span',{class:'brand-dot'}),'FreeBuff2API'),
-    h('div',{class:'tabs'},mkTab('dashboard','Dashboard'),mkTab('config','Config')),
-    h('div',{class:'spacer'}),
-    logout,
-  );
+const mkTab=(id,label)=>h('button',{
+class:'tab'+(State.tab===id?' active':''),
+onclick:()=>{State.tab=id;render()},
+},label);
+const logout=h('button',{class:'btn btn-ghost btn-sm',onclick:()=>{
+State.token='';localStorage.removeItem(TOKEN_KEY);toast('已退出');render();
+}},'退出登录');
+return h('header',{class:'topbar'},
+h('div',{class:'brand'},h('span',{class:'brand-dot'}),'FreeBuff2API'),
+h('div',{class:'tabs'},mkTab('dashboard','Dashboard'),mkTab('config','Config')),
+h('div',{class:'spacer'}),
+logout,
+);
 }
-
 function renderFooter(){
-  const reloadBtn=h('button',{class:'btn btn-ghost btn-sm',onclick:async e=>{
-    rippleEffect(e);
-    try{ await API.reload(); toast('已触发重新加载'); if(State.tab==='dashboard') refreshStatus(); }
-    catch(e){toast(e.message,'error')}
-  }},'手动 Reload');
-  return h('footer',{class:'botbar'},
-    h('span',{class:'version'},'v0.7.0'),
-    reloadBtn,
-  );
+const reloadBtn=h('button',{class:'btn btn-ghost btn-sm',onclick:async e=>{
+rippleEffect(e);
+try{ await API.reload(); toast('已触发重新加载'); if(State.tab==='dashboard') refreshStatus(); }
+catch(e){toast(e.message,'error')}
+}},'手动 Reload');
+return h('footer',{class:'botbar'},
+h('span',{class:'version'},'v0.7.0'),
+reloadBtn,
+);
 }
-
-/* ==================== dashboard ==================== */
 function renderDashboard(){
-  const totalV=h('div',{class:'value','data-val':'0'},'0');
-  const healthyV=h('div',{class:'value','data-val':'0'},'0');
-  const brokenV=h('div',{class:'value','data-val':'0'},'0');
-
-  const statRow=h('div',{class:'stat-row'},
-    h('div',{class:'glass stat total enter',style:'animation-delay:0ms'},
-      h('div',{class:'accent'}),
-      h('div',{class:'label'},'Total Keys'),totalV),
-    h('div',{class:'glass stat healthy enter',style:'animation-delay:80ms'},
-      h('div',{class:'accent'}),
-      h('div',{class:'label'},'Healthy'),healthyV),
-    h('div',{class:'glass stat breaker enter',style:'animation-delay:160ms'},
-      h('div',{class:'accent'}),
-      h('div',{class:'label'},'Breakers Active'),brokenV),
-  );
-
-  const tableWrap=h('div',{class:'table enter',style:'animation-delay:240ms'},
-    h('div',{class:'empty glass',style:'padding:40px;text-align:center'},'加载中…')
-  );
-
-  const fab=h('button',{class:'fab',title:'添加 Key',onclick:()=>openAddKeyModal()},'+');
-
-  // refresher
-  window.__refresh=async()=>{
-    try{
-      const d=await API.status();
-      State.status=d;
-      const total=d.total|0;
-      const activeBroken=(d.keys||[]).filter(k=>k.broken).length;
-      const healthy=total-activeBroken;
-      countUp(totalV,total);
-      countUp(healthyV,healthy);
-      countUp(brokenV,activeBroken);
-      renderKeyRows(tableWrap,d);
-    }catch(e){
-      if(e.message!=='未授权') toast(e.message,'error');
-    }
-  };
-  setTimeout(window.__refresh,50);
-
-  return h('div',{},
-    statRow,
-    h('div',{class:'section-title'},'Keys'),
-    tableWrap,
-    fab,
-  );
+const totalV=h('div',{class:'value','data-val':'0'},'0');
+const healthyV=h('div',{class:'value','data-val':'0'},'0');
+const brokenV=h('div',{class:'value','data-val':'0'},'0');
+const statRow=h('div',{class:'stat-row'},
+h('div',{class:'glass stat total enter',style:'animation-delay:0ms'},
+h('div',{class:'accent'}),
+h('div',{class:'label'},'Total Keys'),totalV),
+h('div',{class:'glass stat healthy enter',style:'animation-delay:80ms'},
+h('div',{class:'accent'}),
+h('div',{class:'label'},'Healthy'),healthyV),
+h('div',{class:'glass stat breaker enter',style:'animation-delay:160ms'},
+h('div',{class:'accent'}),
+h('div',{class:'label'},'Breakers Active'),brokenV),
+);
+const tableWrap=h('div',{class:'table enter',style:'animation-delay:240ms'},
+h('div',{class:'empty glass',style:'padding:40px;text-align:center'},'加载中…')
+);
+const fab=h('button',{class:'fab',title:'新增',onclick:()=>openAddKeyModal()},'+');
+window.__refresh=async()=>{
+try{
+const d=await API.status();
+State.status=d;
+const total=d.total|0;
+const activeBroken=(d.keys||[]).filter(k=>k.broken).length;
+const healthy=total-activeBroken;
+countUp(totalV,total);
+countUp(healthyV,healthy);
+countUp(brokenV,activeBroken);
+renderKeyRows(tableWrap,d);
+}catch(e){
+if(e.message!=='未授权') toast(e.message,'error');
 }
-
+};
+setTimeout(window.__refresh,50);
+const oauthBtn=h('button',{class:'btn btn-ghost btn-sm',onclick:async e=>{
+rippleEffect(e);startOAuthLogin();
+}},'OAuth 登录');
+return h('div',{},
+statRow,
+h('div',{class:'section-title'},'Keys',h('span',{style:'flex:1'}),oauthBtn),
+tableWrap,
+fab,
+);
+}
 function refreshStatus(){if(window.__refresh) window.__refresh()}
-
 function renderKeyRows(container,d){
-  container.innerHTML='';
-  const keys=d.keys||[];
-  if(!keys.length){
-    container.appendChild(h('div',{class:'glass empty'},'暂无 Key，点击右下角 + 添加'));
-    return;
-  }
-  const threshold=d.breaker_threshold||0;
-  keys.forEach((k,i)=>{
-    const broken=!!k.broken;
-    const fails=k.fails||0;
-    const degraded=!broken && threshold>0 && fails>0;
-    let dotCls='ok', stText='healthy';
-    if(broken){dotCls='err';stText='broken';}
-    else if(degraded){dotCls='warn';stText=`degraded (${fails}/${threshold})`;}
-
-    const status=h('div',{class:'status'},h('span',{class:'dot '+dotCls}),stText);
-
-    let cd='';
-    if(broken && k.broken_until){
-      const rem=new Date(k.broken_until).getTime()-Date.now();
-      cd=fmtDuration(rem);
-    }
-    const cdEl=h('div',{class:'countdown','data-until':k.broken_until||''},cd);
-
-    const actions=h('div',{class:'actions'});
-    if(broken){
-      actions.appendChild(h('button',{class:'btn btn-ghost btn-sm',onclick:async e=>{
-        rippleEffect(e);
-        try{await API.reset(k.index);toast('已恢复');refreshStatus()}catch(e){toast(e.message,'error')}
-      }},'恢复'));
-    }else{
-      actions.appendChild(h('button',{class:'btn btn-ghost btn-sm',onclick:async e=>{
-        rippleEffect(e);
-        try{await API.trip(k.index);toast('已熔断');refreshStatus()}catch(e){toast(e.message,'error')}
-      }},'熔断'));
-    }
-    actions.appendChild(h('button',{class:'btn btn-danger btn-sm',onclick:async e=>{
-      rippleEffect(e);
-      if(!k.label){toast('无 label，无法通过 label 删除','error');return;}
-      const ok=await confirmModal(`确认删除 key "${k.label}"?`);
-      if(!ok) return;
-      try{await API.delKey(k.label);toast('已删除');refreshStatus()}catch(e){toast(e.message,'error')}
-    }},'删除'));
-
-    const row=h('div',{class:'glass row enter',style:`animation-delay:${Math.min(i,8)*40}ms`},
-      h('div',{class:'fp'},k.fingerprint||'-'),
-      h('div',{class:'lbl'},k.label||'(no label)'),
-      status,
-      cdEl,
-      actions,
-    );
-    container.appendChild(row);
-  });
+const keys=d.keys||[];
+const threshold=d.breaker_threshold||0;
+if(!container.__rows) container.__rows=new Map();
+const rows=container.__rows;
+const empty=container.querySelector('.empty');
+if(!keys.length){
+rows.forEach(r=>r.el.remove()); rows.clear();
+if(!empty) container.appendChild(h('div',{class:'glass empty'},'暂无数据 · 请点击右下角新增'));
+return;
 }
-
+if(empty) empty.remove();
+const seen=new Set(keys.map(k=>k.index));
+rows.forEach((r,idx)=>{ if(!seen.has(idx)){ r.el.remove(); rows.delete(idx); } });
+keys.forEach((k,i)=>{
+const broken=!!k.broken;
+const fails=k.fails||0;
+const degraded=!broken && threshold>0 && fails>0;
+let dotCls='ok', stText='healthy';
+if(broken){dotCls='err';stText='broken';}
+else if(degraded){dotCls='warn';stText=`degraded (${fails}/${threshold})`;}
+let r=rows.get(k.index);
+if(!r){
+const fpEl=h('div',{class:'fp'});
+const lblEl=h('div',{class:'lbl'});
+const dotEl=h('span',{class:'dot'});
+const stTextEl=document.createTextNode('');
+const statusEl=h('div',{class:'status'}, dotEl, stTextEl);
+const cdEl=h('div',{class:'countdown'});
+const actionsEl=h('div',{class:'actions'});
+const row=h('div',{class:'glass row enter',style:`animation-delay:${Math.min(i,8)*40}ms`},
+fpEl, lblEl, statusEl, cdEl, actionsEl);
+container.appendChild(row);
+r={el:row, fp:fpEl, lbl:lblEl, dot:dotEl, stText:stTextEl, cd:cdEl, actions:actionsEl, state:{}};
+rows.set(k.index, r);
+}
+const fp=k.fingerprint||'-';
+const lbl=k.label||'(no label)';
+if(r.state.fp!==fp){ r.fp.textContent=fp; r.state.fp=fp; }
+if(r.state.lbl!==lbl){ r.lbl.textContent=lbl; r.state.lbl=lbl; }
+if(r.state.dot!==dotCls){ r.dot.className='dot '+dotCls; r.state.dot=dotCls; }
+if(r.state.stText!==stText){ r.stText.nodeValue=stText; r.state.stText=stText; }
+const until=k.broken_until||'';
+if(r.state.until!==until){
+r.cd.setAttribute('data-until', until);
+if(!until) r.cd.textContent='';
+else r.cd.textContent=fmtDuration(new Date(until).getTime()-Date.now());
+r.state.until=until;
+}
+if(r.state.broken!==broken){
+r.actions.innerHTML='';
+if(broken){
+r.actions.appendChild(h('button',{class:'btn btn-ghost btn-sm',onclick:async e=>{
+rippleEffect(e);
+try{await API.reset(k.index);toast('已恢复');refreshStatus()}catch(e){toast(e.message,'error')}
+}},'恢复'));
+}else{
+r.actions.appendChild(h('button',{class:'btn btn-ghost btn-sm',onclick:async e=>{
+rippleEffect(e);
+try{await API.trip(k.index);toast('已熔断');refreshStatus()}catch(e){toast(e.message,'error')}
+}},'熔断'));
+}
+r.actions.appendChild(h('button',{class:'btn btn-danger btn-sm',onclick:async e=>{
+rippleEffect(e);
+if(!k.label){toast('无 label，无法通过 label 删除','error');return;}
+const ok=await confirmModal(`确认删除 key "${k.label}"?`);
+if(!ok) return;
+try{await API.delKey(k.label);toast('已删除');refreshStatus()}catch(e){toast(e.message,'error')}
+}},'删除'));
+r.state.broken=broken;
+}
+});
+}
 function startPolling(){
-  stopPolling();
-  State.pollTimer=setInterval(()=>{if(State.tab==='dashboard') refreshStatus()},5000);
+stopPolling();
+State.pollTimer=setInterval(()=>{if(State.tab==='dashboard') refreshStatus()},5000);
 }
 function stopPolling(){if(State.pollTimer){clearInterval(State.pollTimer);State.pollTimer=null}}
-
 function startCountdown(){
-  stopCountdown();
-  State.countdownTimer=setInterval(()=>{
-    if(State.tab!=='dashboard') return;
-    document.querySelectorAll('.countdown[data-until]').forEach(el=>{
-      const u=el.getAttribute('data-until');
-      if(!u){el.textContent='';return;}
-      const rem=new Date(u).getTime()-Date.now();
-      el.textContent=rem>0?fmtDuration(rem):'0s';
-    });
-  },1000);
+stopCountdown();
+State.countdownTimer=setInterval(()=>{
+if(State.tab!=='dashboard') return;
+document.querySelectorAll('.countdown[data-until]').forEach(el=>{
+const u=el.getAttribute('data-until');
+if(!u){el.textContent='';return;}
+const rem=new Date(u).getTime()-Date.now();
+el.textContent=rem>0?fmtDuration(rem):'0s';
+});
+},1000);
 }
 function stopCountdown(){if(State.countdownTimer){clearInterval(State.countdownTimer);State.countdownTimer=null}}
-
-/* ==================== add key modal ==================== */
 function openAddKeyModal(){
-  const labelIn=h('input',{class:'input',placeholder:'alice',pattern:'[a-zA-Z0-9_-]+',autofocus:true});
-  const tokenIn=h('input',{class:'input mono',type:'password',placeholder:'cb_xxx...'});
-  const backdrop=h('div',{class:'modal-backdrop'});
-  const close=()=>{backdrop.classList.remove('show');setTimeout(()=>backdrop.remove(),250);document.removeEventListener('keydown',escHandler)};
-  const escHandler=e=>{if(e.key==='Escape') close()};
-  const submit=async e=>{
-    e&&rippleEffect(e);
-    const label=labelIn.value.trim(), token=tokenIn.value.trim();
-    if(!/^[a-zA-Z0-9_-]+$/.test(label)){toast('Label 仅允许 a-zA-Z0-9_-','error');return}
-    if(!token){toast('Token 不能为空','error');return}
+const labelIn=h('input',{class:'input',placeholder:'alice',pattern:'[a-zA-Z0-9_-]+',autofocus:true});
+const tokenIn=h('input',{class:'input mono',type:'password',placeholder:'cb_xxx...'});
+const fileInput=h('input',{type:'file',accept:'.json'});
+const fileStatus=h('div',{style:'font-size:12.5px;color:var(--teal);margin-top:8px;display:none'});
+const fileDrop=h('div',{class:'file-drop'},
+  '点击或拖拽 credentials.json 文件',
+  fileInput, fileStatus);
+fileDrop.addEventListener('click',()=>fileInput.click());
+fileDrop.addEventListener('dragover',e=>{e.preventDefault();fileDrop.classList.add('dragover')});
+fileDrop.addEventListener('dragleave',()=>fileDrop.classList.remove('dragover'));
+fileDrop.addEventListener('drop',e=>{e.preventDefault();fileDrop.classList.remove('dragover');handleFiles(e.dataTransfer.files)});
+fileInput.addEventListener('change',()=>handleFiles(fileInput.files));
+function handleFiles(files){
+  if(!files||!files.length) return;
+  const f=files[0];
+  const reader=new FileReader();
+  reader.onload=ev=>{
     try{
-      await API.addKey(label,token);
-      toast('添加成功');
+      const json=JSON.parse(ev.target.result);
+      const tok=json.authToken||json.auth_token||'';
+      const name=json.email||json.name||json.id||f.name.replace(/\.json$/,'');
+      if(tok){tokenIn.value=tok; fileStatus.style.display='block'; fileStatus.textContent='✓ 已读取 '+f.name+' ('+name+')';}
+      if(!labelIn.value.trim()){labelIn.value=f.name.replace(/\.json$/,'').replace(/[^a-zA-Z0-9_-]/g,'_')}
+    }catch{toast('文件不是有效 JSON','error')}
+  };
+  reader.readAsText(f);
+}
+const backdrop=h('div',{class:'modal-backdrop'});
+const close=()=>{backdrop.classList.remove('show');setTimeout(()=>backdrop.remove(),250);document.removeEventListener('keydown',escHandler)};
+const escHandler=e=>{if(e.key==='Escape') close()};
+const submit=async e=>{
+e&&rippleEffect(e);
+const label=labelIn.value.trim(), token=tokenIn.value.trim();
+if(!/^[a-zA-Z0-9_-]+$/.test(label)){toast('Label 仅允许 a-zA-Z0-9_-','error');return}
+if(!token){toast('Token 不能为空','error');return}
+try{
+await API.addKey(label,token);
+toast('添加成功');
+close();
+refreshStatus();
+}catch(e){toast(e.message,'error')}
+};
+const modal=h('div',{class:'glass modal'},
+h('h2',{},'添加 Key'),
+h('div',{class:'subtitle'},'上传 credentials.json 或手动输入'),
+fileDrop,
+h('div',{class:'or-divider'},'或手动填写'),
+h('div',{class:'field'},h('label',{},'Label'),labelIn),
+h('div',{class:'field'},h('label',{},'Token'),tokenIn),
+h('div',{class:'modal-actions'},
+h('button',{class:'btn btn-ghost',onclick:close},'取消'),
+h('button',{class:'btn btn-primary',onclick:submit},'添加'),
+)
+);
+backdrop.appendChild(modal);
+backdrop.addEventListener('click',e=>{if(e.target===backdrop) close()});
+document.body.appendChild(backdrop);
+requestAnimationFrame(()=>backdrop.classList.add('show'));
+document.addEventListener('keydown',escHandler);
+[labelIn,tokenIn].forEach(i=>i.addEventListener('keydown',e=>{if(e.key==='Enter') submit()}));
+}
+async function startOAuthLogin(){
+const statusEl=h('div',{style:'margin-top:16px;font-size:13px;color:var(--muted);text-align:center'},'正在请求登录链接…');
+const backdrop=h('div',{class:'modal-backdrop'});
+const close=()=>{backdrop.classList.remove('show');setTimeout(()=>backdrop.remove(),250);if(pollTimer) clearInterval(pollTimer)};
+let pollTimer=null;
+const modal=h('div',{class:'glass modal'},
+h('h2',{},'OAuth 登录'),
+h('div',{class:'subtitle'},'通过 GitHub 登录 FreeBuff 并自动获取认证'),
+statusEl,
+h('div',{class:'modal-actions'},h('button',{class:'btn btn-ghost',onclick:close},'取消')),
+);
+backdrop.appendChild(modal);
+document.body.appendChild(backdrop);
+requestAnimationFrame(()=>backdrop.classList.add('show'));
+try{
+const d=await API.oauthStart();
+const loginUrl=d.login_url;
+statusEl.innerHTML='<div style="margin-bottom:12px">请在新窗口中完成 GitHub 登录</div><div style="font-size:12px;color:var(--primary);word-break:break-all">'+loginUrl+'</div>';
+window.open(loginUrl,'_blank','width=600,height=700');
+statusEl.innerHTML+='<div style="margin-top:12px;color:var(--teal)">⏳ 等待登录完成…</div>';
+let attempts=0;
+pollTimer=setInterval(async()=>{
+  attempts++;
+  if(attempts>60){clearInterval(pollTimer);statusEl.innerHTML+='<div style="color:var(--err);margin-top:8px">超时，请重试</div>';return}
+  try{
+    const p=await API.oauthPoll(d.fingerprint_id,d.fingerprint_hash,d.expires_at);
+    if(p.done){
+      clearInterval(pollTimer);
+      toast(`登录成功: ${p.email||p.label}`);
       close();
       refreshStatus();
-    }catch(e){toast(e.message,'error')}
-  };
-  const modal=h('div',{class:'glass modal'},
-    h('h2',{},'添加 Key'),
-    h('div',{class:'subtitle'},'为新 Key 指定一个唯一 label 和 token'),
-    h('div',{class:'field'},h('label',{},'Label'),labelIn),
-    h('div',{class:'field'},h('label',{},'Token'),tokenIn),
-    h('div',{class:'modal-actions'},
-      h('button',{class:'btn btn-ghost',onclick:close},'取消'),
-      h('button',{class:'btn btn-primary',onclick:submit},'添加'),
-    )
-  );
-  backdrop.appendChild(modal);
-  backdrop.addEventListener('click',e=>{if(e.target===backdrop) close()});
-  document.body.appendChild(backdrop);
-  requestAnimationFrame(()=>backdrop.classList.add('show'));
-  document.addEventListener('keydown',escHandler);
-  [labelIn,tokenIn].forEach(i=>i.addEventListener('keydown',e=>{if(e.key==='Enter') submit()}));
+    }
+  }catch(e){/* keep polling */}
+},5000);
+}catch(e){
+statusEl.textContent='错误: '+e.message;
+statusEl.style.color='var(--err)';
 }
-
-/* ==================== config ==================== */
+}
 function renderConfig(){
-  const linenos=h('div',{class:'linenos'},'1');
-  const editor=h('textarea',{class:'editor',spellcheck:'false',placeholder:'# YAML 配置加载中…'});
-  const dirty=h('span',{class:'cfg-dirty'},'● 有未保存修改');
-  const saveBtn=h('button',{class:'btn btn-primary',onclick:async e=>{rippleEffect(e);save()}},'保存');
-  const reloadBtn=h('button',{class:'btn btn-ghost',onclick:async e=>{rippleEffect(e);load()}},'重新加载');
+let mode='visual'; // 'visual' | 'editor'
+const container=h('div',{class:'enter'});
 
-  const updateLinenos=()=>{
-    const n=Math.max(1,editor.value.split('\n').length);
-    let s='';for(let i=1;i<=n;i++) s+=i+'\n';
-    linenos.textContent=s;
-  };
-  const updateDirty=()=>{
-    if(editor.value!==State.configOriginal) dirty.classList.add('show');
-    else dirty.classList.remove('show');
-  };
-  editor.addEventListener('input',()=>{State.configYaml=editor.value;updateLinenos();updateDirty()});
-  editor.addEventListener('scroll',()=>{linenos.scrollTop=editor.scrollTop});
-  editor.addEventListener('keydown',e=>{
-    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save()}
-  });
+// Shared state
+const linenos=h('div',{class:'linenos'},'1');
+const editor=h('textarea',{class:'editor',spellcheck:'false',placeholder:'# YAML 配置加载中…'});
+const dirty=h('span',{class:'cfg-dirty'},'● 有未保存修改');
 
-  async function load(){
-    try{
-      const d=await API.getConfig();
-      State.configOriginal=d.yaml||'';
-      State.configYaml=State.configOriginal;
-      editor.value=State.configYaml;
-      updateLinenos();updateDirty();
-    }catch(e){toast(e.message,'error')}
+// Mode toggle
+const visualBtn=h('button',{class:'mode-btn active',onclick:()=>setMode('visual')},'可视化');
+const editorBtn=h('button',{class:'mode-btn',onclick:()=>setMode('editor')},'源文件');
+const toggle=h('div',{class:'cfg-mode-toggle'},visualBtn,editorBtn);
+
+// Buttons
+const saveBtn=h('button',{class:'btn btn-primary',onclick:async e=>{rippleEffect(e);save()}},'保存');
+const reloadBtn=h('button',{class:'btn btn-ghost',onclick:async e=>{rippleEffect(e);load()}},'重新加载');
+
+// Editor view
+const editorView=h('div',{class:'hidden'},h('div',{class:'editor-wrap'},linenos,editor));
+const updateLinenos=()=>{
+const n=Math.max(1,editor.value.split('\n').length);
+let s='';for(let i=1;i<=n;i++) s+=i+'\n';
+linenos.textContent=s;
+};
+const updateDirty=()=>{
+if(editor.value!==State.configOriginal) dirty.classList.add('show');
+else dirty.classList.remove('show');
+};
+editor.addEventListener('input',()=>{State.configYaml=editor.value;updateLinenos();updateDirty()});
+editor.addEventListener('scroll',()=>{linenos.scrollTop=editor.scrollTop});
+editor.addEventListener('keydown',e=>{
+if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save()}
+});
+
+// Visual view — panels built from parsed YAML
+const visualView=h('div',{class:'cfg-panels'});
+const vFields={};
+
+function buildVisualPanels(yamlStr){
+  visualView.innerHTML='';
+  // Parse YAML → fields via simple line-based extraction.
+  const lines=yamlStr.split('\n');
+  const vals={};
+  let section='';
+  for(const line of lines){
+    const sec=line.match(/^(\w[\w_]*):\s*$/);
+    if(sec){section=sec[1];continue}
+    const kv=line.match(/^\s{2}(\w[\w_]*):\s*(.*)$/);
+    if(kv){const key=section?section+'.'+kv[1]:kv[1]; vals[key]=kv[2].replace(/^["']|["']$/g,'').trim();}
+    const kv2=line.match(/^\s{4}(\w[\w_]*):\s*(.*)$/);
+    if(kv2){const key=section+'.breaker.'+kv2[1]; vals[key]=kv2[2].replace(/^["']|["']$/g,'').trim();}
   }
-  async function save(){
-    try{
-      await API.putConfig(editor.value);
-      State.configOriginal=editor.value;
-      updateDirty();
-      toast('已保存，热加载中');
-    }catch(e){toast(e.message,'error')}
+
+  function mkField(key,label,opts){
+    const cur=vals[key]||'';
+    let input;
+    if(opts&&opts.options){
+      input=h('select',{class:'cfg-input'});
+      opts.options.forEach(o=>{const opt=h('option',{value:o},o);if(o===cur) opt.selected=true; input.appendChild(opt)});
+    } else {
+      input=h('input',{class:'cfg-input',value:cur,placeholder:opts&&opts.ph||''});
+    }
+    input.addEventListener('change',()=>{vFields[key]=input.value;dirty.classList.add('show')});
+    input.addEventListener('input',()=>{vFields[key]=input.value;dirty.classList.add('show')});
+    vFields[key]=cur;
+    return h('div',{class:'cfg-field'},
+      h('div',{class:'cfg-label'},label),
+      input);
   }
 
-  setTimeout(load,50);
-
-  return h('div',{class:'enter'},
-    h('div',{class:'cfg-bar'},
-      saveBtn,reloadBtn,dirty,
-      h('span',{class:'spacer',style:'flex:1'}),
-      h('span',{style:'color:var(--muted);font-size:12.5px'},'Ctrl/Cmd+S 保存'),
-    ),
-    h('div',{class:'editor-wrap'},linenos,editor),
-  );
+  // Server
+  visualView.appendChild(h('div',{class:'glass cfg-panel enter',style:'animation-delay:0ms'},
+    h('div',{class:'panel-title'},h('span',{class:'icon'}),'Server'),
+    mkField('server.listen','监听地址',{ph:':8080'}),
+  ));
+  // Upstream
+  visualView.appendChild(h('div',{class:'glass cfg-panel enter',style:'animation-delay:60ms'},
+    h('div',{class:'panel-title'},h('span',{class:'icon'}),'Upstream'),
+    mkField('upstream.base_url','后端 URL',{ph:'https://www.codebuff.com'}),
+    mkField('upstream.cost_mode','计费模式',{options:['free','normal']}),
+    mkField('upstream.default_model','默认模型',{ph:'anthropic/claude-sonnet-4'}),
+  ));
+  // Breaker
+  visualView.appendChild(h('div',{class:'glass cfg-panel enter',style:'animation-delay:120ms'},
+    h('div',{class:'panel-title'},h('span',{class:'icon'}),'Breaker'),
+    mkField('auth.breaker.threshold','熔断阈值',{ph:'3'}),
+    mkField('auth.breaker.cooldown','冷却时间',{ph:'12h'}),
+  ));
+  // Auth dir + watch
+  visualView.appendChild(h('div',{class:'glass cfg-panel enter',style:'animation-delay:180ms'},
+    h('div',{class:'panel-title'},h('span',{class:'icon'}),'Auth'),
+    mkField('auth.dir','认证目录',{ph:'auths'}),
+    mkField('auth.watch_interval','扫描间隔',{ph:'15s'}),
+  ));
+  // Logging
+  visualView.appendChild(h('div',{class:'glass cfg-panel enter',style:'animation-delay:240ms'},
+    h('div',{class:'panel-title'},h('span',{class:'icon'}),'Logging'),
+    mkField('logging.level','日志级别',{options:['debug','info','warn','error']}),
+  ));
 }
 
-/* ==================== boot ==================== */
+function applyVisualToYaml(){
+  // Merge visual field changes back into YAML text.
+  let yaml=editor.value||State.configOriginal;
+  for(const [key,val] of Object.entries(vFields)){
+    const parts=key.split('.');
+    const field=parts[parts.length-1];
+    // Match the indented line and replace value.
+    const re=new RegExp('(^\\s+'+field+':)\\s.*$','m');
+    if(re.test(yaml)){
+      const needsQuote=/[: #\[\]{}]/.test(val)||val==='';
+      yaml=yaml.replace(re,'$1 '+(needsQuote?'"'+val+'"':val));
+    }
+  }
+  return yaml;
+}
+
+function setMode(m){
+  mode=m;
+  visualBtn.classList.toggle('active',m==='visual');
+  editorBtn.classList.toggle('active',m==='editor');
+  if(m==='editor'){
+    // If visual had changes, merge them into editor.
+    if(dirty.classList.contains('show')){
+      const merged=applyVisualToYaml();
+      editor.value=merged;
+      State.configYaml=merged;
+      updateLinenos();
+    }
+    visualView.classList.add('hidden');
+    editorView.classList.remove('hidden');
+  } else {
+    // If editor had changes, rebuild visual from editor text.
+    visualView.classList.remove('hidden');
+    editorView.classList.add('hidden');
+    buildVisualPanels(editor.value||State.configOriginal);
+  }
+}
+
+async function load(){
+try{
+const d=await API.getConfig();
+State.configOriginal=d.yaml||'';
+State.configYaml=State.configOriginal;
+editor.value=State.configYaml;
+updateLinenos();updateDirty();
+buildVisualPanels(State.configOriginal);
+}catch(e){toast(e.message,'error')}
+}
+async function save(){
+try{
+const yaml=mode==='visual'?applyVisualToYaml():editor.value;
+await API.putConfig(yaml);
+State.configOriginal=yaml;
+editor.value=yaml;
+updateDirty();
+toast('已保存，热加载中');
+buildVisualPanels(yaml);
+}catch(e){toast(e.message,'error')}
+}
+setTimeout(load,50);
+
+container.appendChild(h('div',{class:'cfg-bar'},
+toggle,
+h('span',{style:'flex:1'}),
+saveBtn,reloadBtn,dirty,
+h('span',{style:'color:var(--muted);font-size:12px;margin-left:8px'},'Ctrl/Cmd+S'),
+));
+container.appendChild(visualView);
+container.appendChild(editorView);
+return container;
+}
 render();
 window.addEventListener('beforeunload',()=>{stopPolling();stopCountdown()});
+
+// Floating orbs — soft glowing particles for a dreamy/anime feel.
+(function spawnOrbs(){
+  const colors=['rgba(125,211,252,0.5)','rgba(94,234,212,0.4)','rgba(167,243,208,0.45)','rgba(103,232,249,0.4)','rgba(186,230,253,0.5)'];
+  function makeOrb(){
+    const o=document.createElement('div');
+    o.className='orb';
+    const size=4+Math.random()*10;
+    const dur=12+Math.random()*18;
+    o.style.cssText=`width:${size}px;height:${size}px;left:${Math.random()*100}%;background:${colors[Math.random()*colors.length|0]};box-shadow:0 0 ${size*2}px ${colors[Math.random()*colors.length|0]};animation-duration:${dur}s;animation-delay:${Math.random()*dur}s`;
+    document.body.appendChild(o);
+    o.addEventListener('animationend',()=>{o.remove();makeOrb()});
+  }
+  for(let i=0;i<12;i++) setTimeout(()=>makeOrb(),i*800);
+})();
+
 </script>
 </body>
 </html>

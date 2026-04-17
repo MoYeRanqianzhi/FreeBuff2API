@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -307,37 +308,49 @@ func (a *AdminHandler) handleReload(w http.ResponseWriter, r *http.Request) {
 
 // -------------------------------- OAuth --------------------------------
 
-// handleOAuthStart initiates the codebuff Device Code Flow.
-// POST /admin/api/oauth/start → calls codebuff /api/auth/cli/code
-// Returns loginUrl for the frontend to open in a new window.
-func (a *AdminHandler) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
+// oauthStartResult holds the device-code handle returned to the browser.
+// Callers decide which subset to JSON-encode.
+type oauthStartResult struct {
+	LoginURL        string
+	FingerprintID   string
+	FingerprintHash string
+	ExpiresAt       string
+}
+
+// oauthPollResult describes the polling outcome. Pending=true → keep polling.
+// When Pending=false, the credential has already been saved to auths/ and the
+// reloader has been kicked; callers decide how much of Email/Name/Label to
+// disclose to their clients.
+type oauthPollResult struct {
+	Pending bool
+	Label   string
+	Email   string
+	Name    string
+}
+
+// oauthStart triggers the codebuff device-code flow and returns the login URL
+// the user should open in their browser. Shared by admin and public handlers.
+func (a *AdminHandler) oauthStart(ctx context.Context, fpPrefix string) (*oauthStartResult, error) {
 	cfg := a.reloader.Current()
-	fpID := "fp_admin_" + randomHex(8)
+	fpID := fpPrefix + randomHex(8)
 
 	body, _ := json.Marshal(map[string]string{"fingerprintId": fpID})
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		cfg.Upstream.BaseURL+"/api/auth/cli/code", bytes.NewReader(body))
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "freebuff2api/1.0")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, fmt.Sprintf("codebuff: %v", err))
-		return
+		return nil, fmt.Errorf("codebuff: %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		writeErr(w, http.StatusBadGateway, fmt.Sprintf("codebuff %d: %s", resp.StatusCode, string(raw)))
-		return
+		return nil, fmt.Errorf("codebuff %d: %s", resp.StatusCode, string(raw))
 	}
 	var codeResp struct {
 		LoginURL        string `json:"loginUrl"`
@@ -345,62 +358,46 @@ func (a *AdminHandler) handleOAuthStart(w http.ResponseWriter, r *http.Request) 
 		ExpiresAt       string `json:"expiresAt"`
 	}
 	if err := json.Unmarshal(raw, &codeResp); err != nil {
-		writeErr(w, http.StatusBadGateway, "bad codebuff response")
-		return
+		return nil, fmt.Errorf("bad codebuff response")
 	}
-	writeOK(w, map[string]any{
-		"login_url":        codeResp.LoginURL,
-		"fingerprint_id":   fpID,
-		"fingerprint_hash": codeResp.FingerprintHash,
-		"expires_at":       codeResp.ExpiresAt,
-	})
+	return &oauthStartResult{
+		LoginURL:        codeResp.LoginURL,
+		FingerprintID:   fpID,
+		FingerprintHash: codeResp.FingerprintHash,
+		ExpiresAt:       codeResp.ExpiresAt,
+	}, nil
 }
 
-// handleOAuthPoll checks login status and saves the credential on success.
-// GET /admin/api/oauth/poll?fp=<id>&fph=<hash>&exp=<expiresAt>
-func (a *AdminHandler) handleOAuthPoll(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
+// oauthPoll checks the codebuff CLI status endpoint and, on success, writes
+// the credential file under auths/ and kicks a reload. Returns Pending=true
+// while codebuff is still waiting on the user to complete login. Shared by
+// admin and public handlers.
+func (a *AdminHandler) oauthPoll(ctx context.Context, fpID, fpHash, expiresAt string) (*oauthPollResult, error) {
 	cfg := a.reloader.Current()
-	q := r.URL.Query()
-	fpID := q.Get("fp")
-	fpHash := q.Get("fph")
-	expiresAt := q.Get("exp")
-	if fpID == "" || fpHash == "" || expiresAt == "" {
-		writeErr(w, http.StatusBadRequest, "missing fp/fph/exp params")
-		return
-	}
-
 	statusURL := fmt.Sprintf("%s/api/auth/cli/status?fingerprintId=%s&fingerprintHash=%s&expiresAt=%s",
 		cfg.Upstream.BaseURL,
 		url.QueryEscape(fpID),
 		url.QueryEscape(fpHash),
 		url.QueryEscape(expiresAt))
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, statusURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
+		return nil, err
 	}
 	req.Header.Set("User-Agent", "freebuff2api/1.0")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, fmt.Sprintf("codebuff: %v", err))
-		return
+		return nil, fmt.Errorf("codebuff: %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		writeOK(w, map[string]any{"pending": true})
-		return
+		return &oauthPollResult{Pending: true}, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		writeErr(w, http.StatusBadGateway, fmt.Sprintf("codebuff %d: %s", resp.StatusCode, string(raw)))
-		return
+		return nil, fmt.Errorf("codebuff %d: %s", resp.StatusCode, string(raw))
 	}
 
 	var statusResp struct {
@@ -412,13 +409,11 @@ func (a *AdminHandler) handleOAuthPoll(w http.ResponseWriter, r *http.Request) {
 		} `json:"user"`
 	}
 	if err := json.Unmarshal(raw, &statusResp); err != nil || statusResp.User == nil {
-		writeOK(w, map[string]any{"pending": true})
-		return
+		return &oauthPollResult{Pending: true}, nil
 	}
 	u := statusResp.User
 	if u.AuthToken == "" {
-		writeOK(w, map[string]any{"pending": true})
-		return
+		return &oauthPollResult{Pending: true}, nil
 	}
 
 	// Derive a filename from login info.
@@ -430,14 +425,13 @@ func (a *AdminHandler) handleOAuthPoll(w http.ResponseWriter, r *http.Request) {
 		label = "oauth-" + randomHex(4)
 	}
 
-	// Save credential file.
+	// Save credential file. Create auths/ on demand.
 	dir := cfg.Auth.Dir
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("ensure auths dir: %v", err))
-		return
+		return nil, fmt.Errorf("ensure auths dir: %w", err)
 	}
 	path := filepath.Join(dir, label+".json")
-	// If label already exists, append random suffix.
+	// If label already exists, append random suffix so we don't overwrite.
 	if _, err := os.Stat(path); err == nil {
 		label = label + "-" + randomHex(3)
 		path = filepath.Join(dir, label+".json")
@@ -453,15 +447,66 @@ func (a *AdminHandler) handleOAuthPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	data, _ := json.MarshalIndent(cred, "", "  ")
 	if err := atomicWrite(path, data); err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("write: %v", err))
-		return
+		return nil, fmt.Errorf("write: %w", err)
 	}
 	a.reloader.Reload("oauth-login")
+	return &oauthPollResult{
+		Label: label,
+		Email: u.Email,
+		Name:  u.Name,
+	}, nil
+}
+
+// handleOAuthStart initiates the codebuff Device Code Flow (admin variant).
+// POST /admin/api/oauth/start
+func (a *AdminHandler) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	res, err := a.oauthStart(r.Context(), "fp_admin_")
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeOK(w, map[string]any{
+		"login_url":        res.LoginURL,
+		"fingerprint_id":   res.FingerprintID,
+		"fingerprint_hash": res.FingerprintHash,
+		"expires_at":       res.ExpiresAt,
+	})
+}
+
+// handleOAuthPoll checks login status and saves the credential on success
+// (admin variant — returns full email/name/label for the admin UI).
+// GET /admin/api/oauth/poll?fp=<id>&fph=<hash>&exp=<expiresAt>
+func (a *AdminHandler) handleOAuthPoll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	q := r.URL.Query()
+	fpID := q.Get("fp")
+	fpHash := q.Get("fph")
+	expiresAt := q.Get("exp")
+	if fpID == "" || fpHash == "" || expiresAt == "" {
+		writeErr(w, http.StatusBadRequest, "missing fp/fph/exp params")
+		return
+	}
+	res, err := a.oauthPoll(r.Context(), fpID, fpHash, expiresAt)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if res.Pending {
+		writeOK(w, map[string]any{"pending": true})
+		return
+	}
 	writeOK(w, map[string]any{
 		"done":  true,
-		"label": label,
-		"email": u.Email,
-		"name":  u.Name,
+		"label": res.Label,
+		"email": res.Email,
+		"name":  res.Name,
 	})
 }
 

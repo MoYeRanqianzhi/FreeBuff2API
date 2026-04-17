@@ -154,9 +154,28 @@ footer.botbar{padding:16px 32px;border-top:1px solid rgba(255,255,255,0.5);backg
 .cfg-field{display:grid;grid-template-columns:160px 1fr;gap:10px 16px;align-items:center;margin-bottom:12px}
 .cfg-field:last-child{margin-bottom:0}
 .cfg-field .cfg-label{font-size:12.5px;color:var(--muted);font-weight:600;text-align:right;letter-spacing:.3px}
-.cfg-field .cfg-input{padding:9px 14px;border-radius:12px;background:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,0.6);font:inherit;font-size:13.5px;color:var(--text);outline:none;transition:all .3s var(--ease)}
-.cfg-field .cfg-input:focus{border-color:var(--teal-light);background:rgba(255,255,255,.75);box-shadow:0 0 0 3px rgba(94,234,212,.15)}
+.cfg-input{padding:9px 14px;border-radius:12px;background:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,0.6);font:inherit;font-size:13.5px;color:var(--text);outline:none;transition:all .3s var(--ease)}
+.cfg-input:focus{border-color:var(--teal-light);background:rgba(255,255,255,.75);box-shadow:0 0 0 3px rgba(94,234,212,.15)}
 .cfg-field select.cfg-input{cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+/* ── 液态玻璃下拉组件 ── */
+.cfg-select-wrap{position:relative;width:100%}
+.cfg-select-btn{text-align:left;cursor:pointer;width:100%;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;font:inherit;color:var(--text)}
+.cfg-select-btn[aria-expanded=true]{border-color:var(--teal-light);background-color:rgba(255,255,255,.78);box-shadow:0 0 0 3px rgba(94,234,212,.18)}
+.cfg-select-panel{position:absolute;top:calc(100% + 6px);left:0;right:0;padding:6px;z-index:50;max-height:260px;overflow:auto;background:rgba(255,255,255,.72);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hover);opacity:0;transform:translateY(-4px) scale(.98);pointer-events:none;transition:opacity .22s var(--ease),transform .22s var(--ease)}
+.cfg-select-panel.open{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
+.cfg-select-item{padding:9px 14px;border-radius:10px;cursor:pointer;font-size:13.5px;transition:all .18s var(--ease);color:var(--text);font-weight:500}
+.cfg-select-item:hover,.cfg-select-item:focus{background:rgba(94,234,212,.2);outline:none;color:var(--primary)}
+.cfg-select-item.active{color:var(--primary);font-weight:700;background:rgba(125,211,252,.15)}
+.cfg-select-item+.cfg-select-item{margin-top:2px}
+/* ── API Keys 面板 ── */
+.keys-list{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.key-row{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center}
+.key-row .cfg-input{font-family:var(--mono-font);font-size:12.5px;letter-spacing:.2px}
+.key-row .key-toggle,.key-row .key-del{padding:7px 10px;border-radius:10px;border:none;cursor:pointer;font:inherit;font-size:12px;transition:all .2s var(--ease);background:rgba(255,255,255,.5);border:1px solid var(--border);color:var(--muted)}
+.key-row .key-toggle:hover{color:var(--primary);background:rgba(125,211,252,.2)}
+.key-row .key-del:hover{color:#dc2626;background:rgba(254,226,226,.6);border-color:rgba(248,113,113,.3)}
+.keys-actions{display:flex;gap:8px;flex-wrap:wrap}
+.keys-empty{text-align:center;color:var(--muted);padding:16px;font-size:13px;font-style:italic}
 .cfg-mode-toggle{display:flex;gap:4px;padding:3px;border-radius:12px;background:rgba(255,255,255,.4);border:1px solid var(--border)}
 .cfg-mode-toggle .mode-btn{padding:6px 16px;border-radius:9px;border:none;cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;color:var(--muted);background:transparent;transition:all .25s var(--ease)}
 .cfg-mode-toggle .mode-btn.active{color:var(--primary);background:rgba(255,255,255,.7);box-shadow:0 2px 8px rgba(14,165,233,.08)}
@@ -250,6 +269,10 @@ const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
 if(h>0) return `${h}h ${m}m`;
 if(m>0) return `${m}m ${sec}s`;
 return `${sec}s`;
+}
+function genOpenRouterKey(){
+const b=crypto.getRandomValues(new Uint8Array(32));
+return 'sk-or-v1-'+[...b].map(x=>x.toString(16).padStart(2,'0')).join('');
 }
 function rippleEffect(e){
 const b=e.currentTarget, r=b.getBoundingClientRect();
@@ -642,34 +665,136 @@ const vFields={};
 
 function buildVisualPanels(yamlStr){
   visualView.innerHTML='';
-  // Parse YAML → fields via simple line-based extraction.
-  const lines=yamlStr.split('\n');
+  // Parse YAML → fields. Uses indent stack to tolerate 2- or 4-space indent,
+  // and distinguishes list heads (followed by "- ...") from mapping heads.
+  const rawLines=yamlStr.split('\n');
   const vals={};
-  let section='';
-  for(const line of lines){
-    const sec=line.match(/^(\w[\w_]*):\s*$/);
-    if(sec){section=sec[1];continue}
-    const kv=line.match(/^\s{2}(\w[\w_]*):\s*(.*)$/);
-    if(kv){const key=section?section+'.'+kv[1]:kv[1]; vals[key]=kv[2].replace(/^["']|["']$/g,'').trim();}
-    const kv2=line.match(/^\s{4}(\w[\w_]*):\s*(.*)$/);
-    if(kv2){const key=section+'.breaker.'+kv2[1]; vals[key]=kv2[2].replace(/^["']|["']$/g,'').trim();}
+  const lists={'server.api_keys':[],'auth.api_keys':[]};
+  const cleanValue=s=>s.replace(/\s+#.*$/,'').trim().replace(/^["']|["']$/g,'');
+  // Pre-scan: for each "key:" line with empty value, check if the next
+  // non-empty line with greater indent starts with "-" → list, else map.
+  function nextNonEmpty(i){
+    for(let j=i+1;j<rawLines.length;j++){
+      if(rawLines[j].trim()) return rawLines[j];
+    }
+    return null;
+  }
+  // Stack of {indent, path} for breadcrumbs.
+  const stack=[];
+  let curList=null; // {path:'server.api_keys', indent:number}
+  for(let i=0;i<rawLines.length;i++){
+    const line=rawLines[i];
+    if(!line.trim()) continue;
+    const indent=line.match(/^(\s*)/)[1].length;
+    const trimmed=line.trim();
+    // list item
+    const itemM=trimmed.match(/^-\s*(.*)$/);
+    if(itemM && curList && indent>curList.indent){
+      if(lists[curList.path]) lists[curList.path].push(cleanValue(itemM[1]));
+      continue;
+    }
+    curList=null;
+    // pop stack entries with indent >= current (we're stepping back out)
+    while(stack.length && stack[stack.length-1].indent>=indent) stack.pop();
+    const kv=trimmed.match(/^(\w[\w_]*):\s*(.*)$/);
+    if(!kv) continue;
+    const rawVal=kv[2];
+    const trimmedVal=rawVal.replace(/\s+#.*$/,'').trim();
+    const path=stack.map(s=>s.key).concat(kv[1]).join('.');
+    if(trimmedVal===''){
+      // could be map head or list head → peek next non-empty line
+      const nxt=nextNonEmpty(i);
+      const nxtIndent=nxt?nxt.match(/^(\s*)/)[1].length:-1;
+      const isListHead=nxt && nxtIndent>indent && nxt.trim().startsWith('-');
+      if(isListHead){
+        vals[path]='';
+        if(lists[path]!==undefined) curList={path,indent};
+      } else {
+        // map head; push onto stack
+        stack.push({indent,key:kv[1]});
+      }
+    } else {
+      vals[path]=cleanValue(rawVal);
+    }
+  }
+
+  function mkDropdown(options,cur,onChange){
+    const initial=options.includes(cur)?cur:(options[0]||'');
+    const btn=h('button',{type:'button',class:'cfg-input cfg-select-btn','aria-expanded':'false'},initial);
+    const panel=h('div',{class:'cfg-select-panel'});
+    const items=options.map(o=>{
+      const it=h('div',{class:'cfg-select-item'+(o===initial?' active':''),tabindex:'0'},o);
+      it.addEventListener('click',()=>pick(o));
+      it.addEventListener('keydown',e=>{
+        if(e.key==='Enter'||e.key===' '){e.preventDefault();pick(o)}
+        else if(e.key==='ArrowDown'){e.preventDefault();(it.nextSibling||panel.firstChild).focus()}
+        else if(e.key==='ArrowUp'){e.preventDefault();(it.previousSibling||panel.lastChild).focus()}
+        else if(e.key==='Escape'){close();btn.focus()}
+      });
+      panel.appendChild(it);
+      return it;
+    });
+    function pick(v){btn.textContent=v;items.forEach(c=>c.classList.toggle('active',c.textContent===v));close();onChange&&onChange(v)}
+    function open(){btn.setAttribute('aria-expanded','true');panel.classList.add('open')}
+    function close(){btn.setAttribute('aria-expanded','false');panel.classList.remove('open')}
+    btn.addEventListener('click',e=>{e.stopPropagation();panel.classList.contains('open')?close():open()});
+    btn.addEventListener('keydown',e=>{
+      if(e.key==='ArrowDown'||e.key==='Enter'||e.key===' '){e.preventDefault();open();(panel.querySelector('.active')||panel.firstChild).focus()}
+    });
+    const wrap=h('div',{class:'cfg-select-wrap'},btn,panel);
+    wrap._value=()=>btn.textContent;
+    return wrap;
   }
 
   function mkField(key,label,opts){
     const cur=vals[key]||'';
-    let input;
+    let ctrl;
     if(opts&&opts.options){
-      input=h('select',{class:'cfg-input'});
-      opts.options.forEach(o=>{const opt=h('option',{value:o},o);if(o===cur) opt.selected=true; input.appendChild(opt)});
+      const wrap=mkDropdown(opts.options,cur,v=>{vFields[key]=v;dirty.classList.add('show')});
+      vFields[key]=wrap._value;
+      ctrl=wrap;
     } else {
-      input=h('input',{class:'cfg-input',value:cur,placeholder:opts&&opts.ph||''});
+      const input=h('input',{class:'cfg-input',type:opts&&opts.type||'text',value:cur,placeholder:opts&&opts.ph||''});
+      input.addEventListener('change',()=>{vFields[key]=input.value;dirty.classList.add('show')});
+      input.addEventListener('input',()=>{vFields[key]=input.value;dirty.classList.add('show')});
+      vFields[key]=cur;
+      ctrl=input;
     }
-    input.addEventListener('change',()=>{vFields[key]=input.value;dirty.classList.add('show')});
-    input.addEventListener('input',()=>{vFields[key]=input.value;dirty.classList.add('show')});
-    vFields[key]=cur;
     return h('div',{class:'cfg-field'},
       h('div',{class:'cfg-label'},label),
-      input);
+      ctrl);
+  }
+
+  function mkApiKeysPanel(listKey,title){
+    const panel=h('div',{class:'glass cfg-panel enter',style:'animation-delay:30ms'});
+    panel.appendChild(h('div',{class:'panel-title'},h('span',{class:'icon'}),title));
+    const listEl=h('div',{class:'keys-list'});
+    const emptyEl=h('div',{class:'keys-empty'},'暂无 API Key — 点击下方按钮添加');
+    const initialItems=lists[listKey]||[];
+    function addRow(val,focus){
+      emptyEl.remove();
+      const input=h('input',{class:'cfg-input mono',type:'password',value:val||'',placeholder:'sk-or-v1-…'});
+      const toggle=h('button',{type:'button',class:'key-toggle',title:'显示/隐藏'},'👁');
+      toggle.addEventListener('click',()=>{input.type=input.type==='password'?'text':'password'});
+      const del=h('button',{type:'button',class:'key-del',title:'删除'},'✕');
+      del.addEventListener('click',()=>{
+        row.remove();dirty.classList.add('show');
+        if(!listEl.querySelector('.key-row')) listEl.appendChild(emptyEl);
+      });
+      input.addEventListener('input',()=>dirty.classList.add('show'));
+      const row=h('div',{class:'key-row'},input,toggle,del);
+      listEl.appendChild(row);
+      if(focus) input.focus();
+    }
+    if(initialItems.length===0) listEl.appendChild(emptyEl);
+    else initialItems.forEach(v=>addRow(v,false));
+    panel.appendChild(listEl);
+    const addBtn=h('button',{type:'button',class:'btn btn-ghost btn-sm',onclick:e=>{rippleEffect(e);addRow('',true);dirty.classList.add('show')}},'+ 手动添加');
+    const genIcon=h('span',{class:'gen-icon',html:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M13.5 5.5L10.5 2.5M13.5 5.5l-8 8L2.5 13.5l8-8M13.5 5.5L11 3M2.5 2.5L4 4M12 10.5L13.5 12M14.5 7.5L15.5 8.5"/></svg>'});
+    const genBtn=h('button',{type:'button',class:'btn btn-primary btn-sm',onclick:e=>{rippleEffect(e);addRow(genOpenRouterKey(),false);dirty.classList.add('show')}},genIcon,' 随机生成');
+    panel.appendChild(h('div',{class:'keys-actions'},addBtn,genBtn));
+    vFields['__list:'+listKey]=()=>[...listEl.querySelectorAll('.key-row input')].map(i=>i.value.trim()).filter(Boolean);
+    return panel;
   }
 
   // Server
@@ -677,6 +802,8 @@ function buildVisualPanels(yamlStr){
     h('div',{class:'panel-title'},h('span',{class:'icon'}),'Server'),
     mkField('server.listen','监听地址',{ph:':8080'}),
   ));
+  // Client API Keys
+  visualView.appendChild(mkApiKeysPanel('server.api_keys','Client API Keys'));
   // Upstream
   visualView.appendChild(h('div',{class:'glass cfg-panel enter',style:'animation-delay:60ms'},
     h('div',{class:'panel-title'},h('span',{class:'icon'}),'Upstream'),
@@ -703,13 +830,68 @@ function buildVisualPanels(yamlStr){
   ));
 }
 
+function replaceListBlock(yaml,section,field,items){
+  // Replace the list block at "section:" → "<indent>field:" with new items.
+  // Detects the section's child indent unit (2 or 4 spaces) from the first child line.
+  const lines=yaml.split('\n');
+  const out=[];
+  let inSection=false, replaced=false, skipping=false;
+  let sectionIndent=-1, itemIndent=-1;
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    if(/^\S/.test(line) && line.trim()){
+      if(line.startsWith(section+':')){inSection=true;skipping=false;sectionIndent=-1;out.push(line);continue}
+      inSection=false;skipping=false;out.push(line);continue;
+    }
+    if(inSection){
+      const indentMatch=line.match(/^(\s+)/);
+      const indent=indentMatch?indentMatch[1].length:0;
+      if(sectionIndent===-1 && line.trim()) sectionIndent=indent;
+      if(!replaced && indent===sectionIndent){
+        const head=line.match(/^\s+(\w[\w_]*):\s*(.*)$/);
+        if(head && head[1]===field){
+          const pad=' '.repeat(sectionIndent);
+          const subPad=' '.repeat(sectionIndent*2);
+          if(items.length===0){
+            out.push(pad+field+': []');
+          } else {
+            out.push(pad+field+':');
+            for(const v of items){
+              const needsQuote=/[:#"'\s]/.test(v)||v==='';
+              out.push(subPad+'- '+(needsQuote?JSON.stringify(v):v));
+            }
+          }
+          itemIndent=sectionIndent*2;
+          replaced=true;skipping=true;continue;
+        }
+      }
+    }
+    if(skipping){
+      const indentMatch=line.match(/^(\s+)/);
+      const indent=indentMatch?indentMatch[1].length:0;
+      if(indent>sectionIndent && line.trim().startsWith('-')) continue;
+      skipping=false;
+    }
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
 function applyVisualToYaml(){
   // Merge visual field changes back into YAML text.
   let yaml=editor.value||State.configOriginal;
-  for(const [key,val] of Object.entries(vFields)){
+  for(const [key,raw] of Object.entries(vFields)){
+    // List getter: register as "__list:section.field" → function returning array
+    if(key.startsWith('__list:')){
+      const parts=key.slice(7).split('.');
+      if(parts.length!==2) continue;
+      const items=(typeof raw==='function')?raw():(Array.isArray(raw)?raw:[]);
+      yaml=replaceListBlock(yaml,parts[0],parts[1],items);
+      continue;
+    }
+    const val=(typeof raw==='function')?raw():raw;
     const parts=key.split('.');
     const field=parts[parts.length-1];
-    // Match the indented line and replace value.
     const re=new RegExp('(^\\s+'+field+':)\\s.*$','m');
     if(re.test(yaml)){
       const needsQuote=/[: #\[\]{}]/.test(val)||val==='';
@@ -776,6 +958,11 @@ return container;
 }
 render();
 window.addEventListener('beforeunload',()=>{stopPolling();stopCountdown()});
+document.addEventListener('click',e=>{
+  document.querySelectorAll('.cfg-select-panel.open').forEach(p=>{
+    if(!p.parentNode.contains(e.target)){p.classList.remove('open');const b=p.parentNode.querySelector('.cfg-select-btn');if(b) b.setAttribute('aria-expanded','false')}
+  });
+});
 
 // Floating orbs — soft glowing particles for a dreamy/anime feel.
 (function spawnOrbs(){

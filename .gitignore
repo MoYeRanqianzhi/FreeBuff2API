@@ -26,3 +26,6 @@ auths/*.json
 
 # Local config (may contain inline api_keys). Only the example is tracked.
 /config.yaml
+
+# Admin UI token (enables /admin/* when present). Only the example is tracked.
+/token.key

@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FreeBuff2API Admin</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  /* cyan / teal palette */
+  --cyan-deep:#0891b2;   /* cyan-600 */
+  --cyan:#06b6d4;        /* cyan-500 */
+  --teal:#14b8a6;        /* teal-500 */
+  --teal-light:#5eead4;  /* teal-300 */
+  --sky:#7dd3fc;         /* sky-300 */
+  --sky-bright:#67e8f9;  /* cyan-300 */
+  --mint:#a7f3d0;        /* emerald-200 */
+  --ok:#5eead4;--warn:#fbbf24;--err:#f87171;
+  --text:#f0fdfa;--muted:#94b8c4;--mono:#5eead4;
+  --glass:rgba(94,234,212,.08);--glass-strong:rgba(94,234,212,.14);
+  --border:rgba(167,243,208,.18);
+  --shadow:0 8px 32px rgba(6,22,33,.45),0 1px 0 rgba(167,243,208,.06) inset;
+  --ease:cubic-bezier(.4,0,.2,1);
+  --mono-font:'JetBrains Mono','Fira Code','SF Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+html,body{height:100%}
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  color:var(--text);
+  background:#0a1a24;
+  min-height:100vh;
+  overflow-x:hidden;
+  position:relative;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+body::before{
+  content:"";position:fixed;inset:-20%;z-index:-1;
+  background:
+    radial-gradient(55% 55% at 22% 30%, rgba(8,145,178,.55) 0%, transparent 60%),
+    radial-gradient(50% 50% at 78% 28%, rgba(20,184,166,.50) 0%, transparent 62%),
+    radial-gradient(60% 60% at 50% 85%, rgba(103,232,249,.40) 0%, transparent 65%),
+    radial-gradient(45% 45% at 15% 90%, rgba(167,243,208,.30) 0%, transparent 65%),
+    linear-gradient(135deg,#0a1a24 0%,#0f172a 100%);
+  filter:blur(10px);
+  animation:bgShift 20s ease-in-out infinite;
+}
+@keyframes bgShift{
+  0%,100%{transform:translate3d(0,0,0) scale(1)}
+  33%{transform:translate3d(3%,-2%,0) scale(1.05)}
+  66%{transform:translate3d(-2%,2%,0) scale(1.03)}
+}
+.glass{
+  background:var(--glass);
+  backdrop-filter:blur(20px) saturate(180%);
+  -webkit-backdrop-filter:blur(20px) saturate(180%);
+  border:1px solid var(--border);
+  box-shadow:var(--shadow);
+  border-radius:18px;
+}
+
+/* enter animation */
+.enter{opacity:0;transform:translateY(16px);animation:enter .4s var(--ease) forwards}
+@keyframes enter{to{opacity:1;transform:translateY(0)}}
+
+/* layout */
+#app{min-height:100vh;display:flex;flex-direction:column}
+header.topbar{
+  padding:16px 28px;display:flex;align-items:center;gap:18px;
+  backdrop-filter:blur(16px);
+  background:rgba(10,26,36,.55);
+  border-bottom:1px solid var(--border);
+  position:sticky;top:0;z-index:40;
+}
+.brand{font-weight:700;letter-spacing:.3px;font-size:17px;display:flex;align-items:center;gap:10px}
+.brand-dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--teal-light));box-shadow:0 0 14px var(--teal)}
+.tabs{display:flex;gap:6px;margin-left:20px}
+.tab{
+  padding:8px 18px;border-radius:12px;cursor:pointer;
+  color:var(--muted);font-size:14px;font-weight:500;
+  transition:all .25s var(--ease);background:transparent;border:none;
+}
+.tab:hover{color:var(--text);background:rgba(94,234,212,.08)}
+.tab.active{color:var(--text);background:var(--glass-strong);box-shadow:inset 0 0 0 1px var(--border)}
+.spacer{flex:1}
+.btn{
+  border:none;cursor:pointer;font:inherit;color:var(--text);
+  padding:10px 18px;border-radius:12px;font-size:14px;font-weight:500;
+  transition:all .2s var(--ease);position:relative;overflow:hidden;
+  display:inline-flex;align-items:center;gap:8px;
+}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{
+  background:linear-gradient(135deg,var(--cyan),var(--teal));
+  box-shadow:0 6px 20px rgba(20,184,166,.38);
+  color:#022c22;
+  font-weight:600;
+}
+.btn-primary:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 10px 28px rgba(20,184,166,.55)}
+.btn-primary:active:not(:disabled){transform:translateY(0) scale(.97)}
+.btn-ghost{background:var(--glass);border:1px solid var(--border);backdrop-filter:blur(10px)}
+.btn-ghost:hover:not(:disabled){background:var(--glass-strong)}
+.btn-danger{background:linear-gradient(135deg,#f87171,#b91c1c);box-shadow:0 4px 16px rgba(248,113,113,.35)}
+.btn-danger:hover:not(:disabled){transform:translateY(-1px)}
+.btn-sm{padding:6px 12px;font-size:12.5px;border-radius:9px}
+.btn .ripple{position:absolute;border-radius:50%;transform:scale(0);background:rgba(255,255,255,.4);animation:ripple .6s var(--ease);pointer-events:none}
+@keyframes ripple{to{transform:scale(3.5);opacity:0}}
+
+main{flex:1;padding:28px;max-width:1200px;margin:0 auto;width:100%}
+
+/* ---------- Login ---------- */
+.center-wrap{min-height:calc(100vh - 140px);display:flex;align-items:center;justify-content:center;padding:24px}
+.login-card{width:100%;max-width:420px;padding:38px 34px}
+.login-card h1{font-size:24px;margin-bottom:6px;background:linear-gradient(135deg,#fff,var(--sky-bright));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.login-card p{color:var(--muted);font-size:14px;margin-bottom:24px}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.field label{font-size:12.5px;color:var(--muted);font-weight:500;letter-spacing:.2px}
+.input,.textarea{
+  width:100%;padding:12px 14px;border-radius:11px;
+  background:rgba(94,234,212,.06);border:1px solid var(--border);
+  color:var(--text);font:inherit;font-size:14px;
+  transition:border-color .2s,background .2s,box-shadow .2s;
+  outline:none;
+}
+.input:focus,.textarea:focus{border-color:var(--teal-light);background:rgba(94,234,212,.1);box-shadow:0 0 0 3px rgba(94,234,212,.15)}
+.input.mono,.textarea.mono{font-family:var(--mono-font);font-size:13px}
+.textarea{min-height:200px;resize:vertical;line-height:1.55}
+
+/* ---------- Stats ---------- */
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:28px}
+.stat{padding:22px 24px;position:relative;overflow:hidden}
+.stat .label{font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px;font-weight:600}
+.stat .value{font-size:38px;font-weight:700;margin-top:10px;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.stat .accent{position:absolute;right:-20px;top:-20px;width:110px;height:110px;border-radius:50%;opacity:.28;filter:blur(22px)}
+.stat.total .accent{background:var(--cyan)}
+.stat.healthy .accent{background:var(--teal-light)}
+.stat.breaker .accent{background:var(--err)}
+
+/* ---------- Keys table ---------- */
+.section-title{font-size:16px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:10px}
+.table{display:flex;flex-direction:column;gap:10px}
+.row{
+  display:grid;
+  grid-template-columns:minmax(170px,1.4fr) 1.2fr 1fr 1fr auto;
+  align-items:center;gap:18px;padding:16px 20px;
+  transition:transform .2s var(--ease),background .2s;
+}
+.row:hover{background:var(--glass-strong);transform:translateX(2px)}
+.fp{font-family:var(--mono-font);font-size:13px;color:var(--mono);letter-spacing:.3px}
+.lbl{color:var(--muted);font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}
+.dot.ok{background:var(--ok);box-shadow:0 0 0 0 rgba(94,234,212,.6);animation:pulse-ok 2.2s infinite}
+.dot.err{background:var(--err);animation:breath 1.8s ease-in-out infinite}
+.dot.warn{background:var(--warn);box-shadow:0 0 10px var(--warn)}
+@keyframes pulse-ok{0%{box-shadow:0 0 0 0 rgba(94,234,212,.6)}70%{box-shadow:0 0 0 10px rgba(94,234,212,0)}100%{box-shadow:0 0 0 0 rgba(94,234,212,0)}}
+@keyframes breath{0%,100%{opacity:.55;transform:scale(.88)}50%{opacity:1;transform:scale(1.15)}}
+.countdown{font-family:var(--mono-font);font-size:12.5px;color:var(--warn)}
+.actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+
+/* FAB */
+.fab{
+  position:fixed;right:32px;bottom:32px;z-index:30;
+  width:58px;height:58px;border-radius:50%;border:none;cursor:pointer;
+  background:linear-gradient(135deg,var(--cyan),var(--teal),var(--sky-bright));
+  color:#022c22;font-size:28px;font-weight:400;
+  box-shadow:0 10px 30px rgba(20,184,166,.55);
+  transition:all .25s var(--ease);
+  display:flex;align-items:center;justify-content:center;
+}
+.fab:hover{transform:translateY(-3px) rotate(90deg);box-shadow:0 14px 40px rgba(94,234,212,.7)}
+.fab:active{transform:scale(.95)}
+
+/* modal */
+.modal-backdrop{
+  position:fixed;inset:0;z-index:50;
+  background:rgba(5,20,28,.6);
+  backdrop-filter:blur(8px);
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .25s var(--ease);
+}
+.modal-backdrop.show{opacity:1;pointer-events:auto}
+.modal{
+  width:100%;max-width:440px;padding:30px;margin:16px;
+  transform:translateY(24px) scale(.96);
+  transition:transform .35s var(--ease);
+}
+.modal-backdrop.show .modal{transform:translateY(0) scale(1)}
+.modal h2{font-size:18px;margin-bottom:6px}
+.modal .subtitle{color:var(--muted);font-size:13px;margin-bottom:20px}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+
+/* config editor */
+.cfg-bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.cfg-dirty{color:var(--warn);font-size:13px;font-weight:500;display:none}
+.cfg-dirty.show{display:inline-flex;align-items:center;gap:6px}
+.editor-wrap{
+  display:grid;grid-template-columns:auto 1fr;gap:0;
+  border-radius:14px;overflow:hidden;
+  background:rgba(8,22,30,.7);
+  border:1px solid var(--border);
+}
+.linenos{
+  padding:14px 10px;background:rgba(0,0,0,.3);
+  font-family:var(--mono-font);font-size:13px;color:rgba(167,243,208,.3);
+  text-align:right;user-select:none;line-height:1.55;min-width:44px;
+  white-space:pre;overflow:hidden;
+}
+.editor{
+  width:100%;min-height:480px;padding:14px 16px;
+  background:transparent;border:none;outline:none;
+  color:var(--text);font-family:var(--mono-font);font-size:13px;line-height:1.55;
+  resize:vertical;white-space:pre;tab-size:2;
+}
+
+/* toast */
+#toasts{
+  position:fixed;top:24px;left:50%;transform:translateX(-50%);
+  z-index:100;display:flex;flex-direction:column;gap:10px;pointer-events:none;
+}
+.toast{
+  padding:12px 20px;border-radius:12px;font-size:14px;font-weight:500;
+  min-width:220px;max-width:480px;
+  backdrop-filter:blur(14px);
+  border:1px solid var(--border);
+  box-shadow:var(--shadow);
+  animation:toast-in .3s var(--ease) forwards,toast-out .3s var(--ease) 2.7s forwards;
+  pointer-events:auto;
+}
+.toast.success{background:rgba(94,234,212,.18);color:#a7f3d0;border-color:rgba(94,234,212,.5)}
+.toast.error{background:rgba(248,113,113,.18);color:#fecaca;border-color:rgba(248,113,113,.5)}
+@keyframes toast-in{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes toast-out{to{opacity:0;transform:translateY(-14px)}}
+
+/* footer */
+footer.botbar{
+  padding:14px 28px;
+  border-top:1px solid var(--border);
+  background:rgba(10,26,36,.55);
+  backdrop-filter:blur(16px);
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:12.5px;color:var(--muted);
+}
+.version{font-family:var(--mono-font);opacity:.7}
+
+/* responsive */
+@media(max-width:720px){
+  main{padding:18px}
+  header.topbar{padding:12px 16px;gap:10px;flex-wrap:wrap}
+  .tabs{margin-left:0;order:3;width:100%}
+  .stat-row{grid-template-columns:1fr}
+  .row{
+    grid-template-columns:1fr;
+    gap:10px;
+  }
+  .row .fp{font-size:12.5px}
+  .actions{justify-content:flex-start}
+  .fab{right:18px;bottom:18px;width:52px;height:52px}
+}
+
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toasts"></div>
+
+<script>
+'use strict';
+
+/* ==================== state ==================== */
+const State = {
+  token: localStorage.getItem('freebuff_admin_token') || '',
+  tab: 'dashboard',
+  status: null,
+  configYaml: '',
+  configOriginal: '',
+  countdownTimer: null,
+  pollTimer: null,
+};
+
+const TOKEN_KEY = 'freebuff_admin_token';
+
+/* ==================== API ==================== */
+async function api(path, opts={}){
+  const headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
+  if(State.token) headers['X-Admin-Token'] = State.token;
+  let res;
+  try{
+    res = await fetch(path,{...opts,headers});
+  }catch(e){
+    throw new Error('网络错误: '+e.message);
+  }
+  if(res.status===401){
+    State.token='';
+    localStorage.removeItem(TOKEN_KEY);
+    render();
+    throw new Error('未授权');
+  }
+  let body;
+  try{ body = await res.json(); }catch{ body = {ok:false,error:'响应非 JSON'}; }
+  if(!body.ok) throw new Error(body.error||('HTTP '+res.status));
+  return body.data;
+}
+
+const API = {
+  status:       ()=>api('/admin/api/status'),
+  getConfig:    ()=>api('/admin/api/config'),
+  putConfig:    (yaml)=>api('/admin/api/config',{method:'PUT',body:JSON.stringify({yaml})}),
+  addKey:       (label,token)=>api('/admin/api/keys',{method:'POST',body:JSON.stringify({label,token})}),
+  delKey:       (label)=>api('/admin/api/keys/'+encodeURIComponent(label),{method:'DELETE'}),
+  trip:         (idx)=>api('/admin/api/keys/'+idx+'/trip',{method:'POST'}),
+  reset:        (idx)=>api('/admin/api/keys/'+idx+'/reset',{method:'POST'}),
+  reload:       ()=>api('/admin/api/reload',{method:'POST'}),
+};
+
+/* ==================== toast ==================== */
+function toast(msg,type='success'){
+  const root=document.getElementById('toasts');
+  const t=document.createElement('div');
+  t.className='toast '+type;
+  t.textContent=msg;
+  root.appendChild(t);
+  setTimeout(()=>t.remove(),3100);
+}
+
+/* ==================== helpers ==================== */
+function h(tag,attrs={},...kids){
+  const el=document.createElement(tag);
+  for(const k in attrs){
+    const v=attrs[k];
+    if(k==='class') el.className=v;
+    else if(k==='html') el.innerHTML=v;
+    else if(k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(),v);
+    else if(v===true) el.setAttribute(k,'');
+    else if(v!==false&&v!=null) el.setAttribute(k,v);
+  }
+  for(const kid of kids.flat()){
+    if(kid==null||kid===false) continue;
+    el.appendChild(typeof kid==='string'?document.createTextNode(kid):kid);
+  }
+  return el;
+}
+function fmtDuration(ms){
+  if(ms<=0) return '0s';
+  const s=Math.floor(ms/1000);
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
+  if(h>0) return `${h}h ${m}m`;
+  if(m>0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+function rippleEffect(e){
+  const b=e.currentTarget, r=b.getBoundingClientRect();
+  const s=document.createElement('span');
+  s.className='ripple';
+  const size=Math.max(r.width,r.height);
+  s.style.width=s.style.height=size+'px';
+  s.style.left=(e.clientX-r.left-size/2)+'px';
+  s.style.top=(e.clientY-r.top-size/2)+'px';
+  b.appendChild(s);
+  setTimeout(()=>s.remove(),600);
+}
+function confirmModal(message){
+  return new Promise(resolve=>{
+    const backdrop=h('div',{class:'modal-backdrop show'});
+    const modal=h('div',{class:'glass modal'},
+      h('h2',{},'确认'),
+      h('div',{class:'subtitle'},message),
+      h('div',{class:'modal-actions'},
+        h('button',{class:'btn btn-ghost',onclick:close(false)},'取消'),
+        h('button',{class:'btn btn-danger',onclick:close(true)},'确认'),
+      )
+    );
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+    function close(ok){return ()=>{backdrop.remove();resolve(ok)}}
+    backdrop.addEventListener('click',e=>{if(e.target===backdrop){backdrop.remove();resolve(false)}});
+    const esc=e=>{if(e.key==='Escape'){document.removeEventListener('keydown',esc);backdrop.remove();resolve(false)}};
+    document.addEventListener('keydown',esc);
+  });
+}
+
+/* ==================== count-up ==================== */
+function countUp(el,target,dur=700){
+  const start=parseInt(el.dataset.val||'0',10);
+  const t0=performance.now();
+  function step(now){
+    const p=Math.min(1,(now-t0)/dur);
+    const eased=1-Math.pow(1-p,3);
+    el.textContent=Math.round(start+(target-start)*eased);
+    if(p<1) requestAnimationFrame(step);
+    else el.dataset.val=target;
+  }
+  requestAnimationFrame(step);
+}
+
+/* ==================== render ==================== */
+function render(){
+  stopPolling();stopCountdown();
+  const app=document.getElementById('app');
+  app.innerHTML='';
+  if(!State.token){ app.appendChild(renderLogin()); return; }
+  app.appendChild(renderTopbar());
+  const main=h('main');
+  if(State.tab==='dashboard'){
+    main.appendChild(renderDashboard());
+    startPolling();
+    startCountdown();
+  }else{
+    main.appendChild(renderConfig());
+  }
+  app.appendChild(main);
+  app.appendChild(renderFooter());
+}
+
+function renderLogin(){
+  const input=h('input',{class:'input mono',type:'password',placeholder:'admin token',autofocus:true});
+  const submit=async ()=>{
+    const v=input.value.trim();
+    if(!v){toast('请输入 token','error');return}
+    State.token=v;
+    localStorage.setItem(TOKEN_KEY,v);
+    try{
+      await API.status();
+      toast('登录成功');
+      render();
+    }catch(e){
+      State.token='';localStorage.removeItem(TOKEN_KEY);
+      toast(e.message,'error');
+    }
+  };
+  input.addEventListener('keydown',e=>{if(e.key==='Enter') submit()});
+  const btn=h('button',{class:'btn btn-primary',style:'width:100%;justify-content:center',onclick:e=>{rippleEffect(e);submit()}},'登录');
+  return h('div',{class:'center-wrap'},
+    h('div',{class:'glass login-card enter'},
+      h('h1',{},'FreeBuff2API'),
+      h('p',{},'请输入管理员 Token 以继续'),
+      h('div',{class:'field'},h('label',{},'Admin Token'),input),
+      btn,
+    )
+  );
+}
+
+function renderTopbar(){
+  const mkTab=(id,label)=>h('button',{
+    class:'tab'+(State.tab===id?' active':''),
+    onclick:()=>{State.tab=id;render()},
+  },label);
+  const logout=h('button',{class:'btn btn-ghost btn-sm',onclick:()=>{
+    State.token='';localStorage.removeItem(TOKEN_KEY);toast('已退出');render();
+  }},'退出登录');
+  return h('header',{class:'topbar'},
+    h('div',{class:'brand'},h('span',{class:'brand-dot'}),'FreeBuff2API'),
+    h('div',{class:'tabs'},mkTab('dashboard','Dashboard'),mkTab('config','Config')),
+    h('div',{class:'spacer'}),
+    logout,
+  );
+}
+
+function renderFooter(){
+  const reloadBtn=h('button',{class:'btn btn-ghost btn-sm',onclick:async e=>{
+    rippleEffect(e);
+    try{ await API.reload(); toast('已触发重新加载'); if(State.tab==='dashboard') refreshStatus(); }
+    catch(e){toast(e.message,'error')}
+  }},'手动 Reload');
+  return h('footer',{class:'botbar'},
+    h('span',{class:'version'},'v0.7.0'),
+    reloadBtn,
+  );
+}
+
+/* ==================== dashboard ==================== */
+function renderDashboard(){
+  const totalV=h('div',{class:'value','data-val':'0'},'0');
+  const healthyV=h('div',{class:'value','data-val':'0'},'0');
+  const brokenV=h('div',{class:'value','data-val':'0'},'0');
+
+  const statRow=h('div',{class:'stat-row'},
+    h('div',{class:'glass stat total enter',style:'animation-delay:0ms'},
+      h('div',{class:'accent'}),
+      h('div',{class:'label'},'Total Keys'),totalV),
+    h('div',{class:'glass stat healthy enter',style:'animation-delay:80ms'},
+      h('div',{class:'accent'}),
+      h('div',{class:'label'},'Healthy'),healthyV),
+    h('div',{class:'glass stat breaker enter',style:'animation-delay:160ms'},
+      h('div',{class:'accent'}),
+      h('div',{class:'label'},'Breakers Active'),brokenV),
+  );
+
+  const tableWrap=h('div',{class:'table enter',style:'animation-delay:240ms'},
+    h('div',{class:'empty glass',style:'padding:40px;text-align:center'},'加载中…')
+  );
+
+  const fab=h('button',{class:'fab',title:'添加 Key',onclick:()=>openAddKeyModal()},'+');
+
+  // refresher
+  window.__refresh=async()=>{
+    try{
+      const d=await API.status();
+      State.status=d;
+      const total=d.total|0;
+      const activeBroken=(d.keys||[]).filter(k=>k.broken).length;
+      const healthy=total-activeBroken;
+      countUp(totalV,total);
+      countUp(healthyV,healthy);
+      countUp(brokenV,activeBroken);
+      renderKeyRows(tableWrap,d);
+    }catch(e){
+      if(e.message!=='未授权') toast(e.message,'error');
+    }
+  };
+  setTimeout(window.__refresh,50);
+
+  return h('div',{},
+    statRow,
+    h('div',{class:'section-title'},'Keys'),
+    tableWrap,
+    fab,
+  );
+}
+
+function refreshStatus(){if(window.__refresh) window.__refresh()}
+
+function renderKeyRows(container,d){
+  container.innerHTML='';
+  const keys=d.keys||[];
+  if(!keys.length){
+    container.appendChild(h('div',{class:'glass empty'},'暂无 Key，点击右下角 + 添加'));
+    return;
+  }
+  const threshold=d.breaker_threshold||0;
+  keys.forEach((k,i)=>{
+    const broken=!!k.broken;
+    const fails=k.fails||0;
+    const degraded=!broken && threshold>0 && fails>0;
+    let dotCls='ok', stText='healthy';
+    if(broken){dotCls='err';stText='broken';}
+    else if(degraded){dotCls='warn';stText=`degraded (${fails}/${threshold})`;}
+
+    const status=h('div',{class:'status'},h('span',{class:'dot '+dotCls}),stText);
+
+    let cd='';
+    if(broken && k.broken_until){
+      const rem=new Date(k.broken_until).getTime()-Date.now();
+      cd=fmtDuration(rem);
+    }
+    const cdEl=h('div',{class:'countdown','data-until':k.broken_until||''},cd);
+
+    const actions=h('div',{class:'actions'});
+    if(broken){
+      actions.appendChild(h('button',{class:'btn btn-ghost btn-sm',onclick:async e=>{
+        rippleEffect(e);
+        try{await API.reset(k.index);toast('已恢复');refreshStatus()}catch(e){toast(e.message,'error')}
+      }},'恢复'));
+    }else{
+      actions.appendChild(h('button',{class:'btn btn-ghost btn-sm',onclick:async e=>{
+        rippleEffect(e);
+        try{await API.trip(k.index);toast('已熔断');refreshStatus()}catch(e){toast(e.message,'error')}
+      }},'熔断'));
+    }
+    actions.appendChild(h('button',{class:'btn btn-danger btn-sm',onclick:async e=>{
+      rippleEffect(e);
+      if(!k.label){toast('无 label，无法通过 label 删除','error');return;}
+      const ok=await confirmModal(`确认删除 key "${k.label}"?`);
+      if(!ok) return;
+      try{await API.delKey(k.label);toast('已删除');refreshStatus()}catch(e){toast(e.message,'error')}
+    }},'删除'));
+
+    const row=h('div',{class:'glass row enter',style:`animation-delay:${Math.min(i,8)*40}ms`},
+      h('div',{class:'fp'},k.fingerprint||'-'),
+      h('div',{class:'lbl'},k.label||'(no label)'),
+      status,
+      cdEl,
+      actions,
+    );
+    container.appendChild(row);
+  });
+}
+
+function startPolling(){
+  stopPolling();
+  State.pollTimer=setInterval(()=>{if(State.tab==='dashboard') refreshStatus()},5000);
+}
+function stopPolling(){if(State.pollTimer){clearInterval(State.pollTimer);State.pollTimer=null}}
+
+function startCountdown(){
+  stopCountdown();
+  State.countdownTimer=setInterval(()=>{
+    if(State.tab!=='dashboard') return;
+    document.querySelectorAll('.countdown[data-until]').forEach(el=>{
+      const u=el.getAttribute('data-until');
+      if(!u){el.textContent='';return;}
+      const rem=new Date(u).getTime()-Date.now();
+      el.textContent=rem>0?fmtDuration(rem):'0s';
+    });
+  },1000);
+}
+function stopCountdown(){if(State.countdownTimer){clearInterval(State.countdownTimer);State.countdownTimer=null}}
+
+/* ==================== add key modal ==================== */
+function openAddKeyModal(){
+  const labelIn=h('input',{class:'input',placeholder:'alice',pattern:'[a-zA-Z0-9_-]+',autofocus:true});
+  const tokenIn=h('input',{class:'input mono',type:'password',placeholder:'cb_xxx...'});
+  const backdrop=h('div',{class:'modal-backdrop'});
+  const close=()=>{backdrop.classList.remove('show');setTimeout(()=>backdrop.remove(),250);document.removeEventListener('keydown',escHandler)};
+  const escHandler=e=>{if(e.key==='Escape') close()};
+  const submit=async e=>{
+    e&&rippleEffect(e);
+    const label=labelIn.value.trim(), token=tokenIn.value.trim();
+    if(!/^[a-zA-Z0-9_-]+$/.test(label)){toast('Label 仅允许 a-zA-Z0-9_-','error');return}
+    if(!token){toast('Token 不能为空','error');return}
+    try{
+      await API.addKey(label,token);
+      toast('添加成功');
+      close();
+      refreshStatus();
+    }catch(e){toast(e.message,'error')}
+  };
+  const modal=h('div',{class:'glass modal'},
+    h('h2',{},'添加 Key'),
+    h('div',{class:'subtitle'},'为新 Key 指定一个唯一 label 和 token'),
+    h('div',{class:'field'},h('label',{},'Label'),labelIn),
+    h('div',{class:'field'},h('label',{},'Token'),tokenIn),
+    h('div',{class:'modal-actions'},
+      h('button',{class:'btn btn-ghost',onclick:close},'取消'),
+      h('button',{class:'btn btn-primary',onclick:submit},'添加'),
+    )
+  );
+  backdrop.appendChild(modal);
+  backdrop.addEventListener('click',e=>{if(e.target===backdrop) close()});
+  document.body.appendChild(backdrop);
+  requestAnimationFrame(()=>backdrop.classList.add('show'));
+  document.addEventListener('keydown',escHandler);
+  [labelIn,tokenIn].forEach(i=>i.addEventListener('keydown',e=>{if(e.key==='Enter') submit()}));
+}
+
+/* ==================== config ==================== */
+function renderConfig(){
+  const linenos=h('div',{class:'linenos'},'1');
+  const editor=h('textarea',{class:'editor',spellcheck:'false',placeholder:'# YAML 配置加载中…'});
+  const dirty=h('span',{class:'cfg-dirty'},'● 有未保存修改');
+  const saveBtn=h('button',{class:'btn btn-primary',onclick:async e=>{rippleEffect(e);save()}},'保存');
+  const reloadBtn=h('button',{class:'btn btn-ghost',onclick:async e=>{rippleEffect(e);load()}},'重新加载');
+
+  const updateLinenos=()=>{
+    const n=Math.max(1,editor.value.split('\n').length);
+    let s='';for(let i=1;i<=n;i++) s+=i+'\n';
+    linenos.textContent=s;
+  };
+  const updateDirty=()=>{
+    if(editor.value!==State.configOriginal) dirty.classList.add('show');
+    else dirty.classList.remove('show');
+  };
+  editor.addEventListener('input',()=>{State.configYaml=editor.value;updateLinenos();updateDirty()});
+  editor.addEventListener('scroll',()=>{linenos.scrollTop=editor.scrollTop});
+  editor.addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save()}
+  });
+
+  async function load(){
+    try{
+      const d=await API.getConfig();
+      State.configOriginal=d.yaml||'';
+      State.configYaml=State.configOriginal;
+      editor.value=State.configYaml;
+      updateLinenos();updateDirty();
+    }catch(e){toast(e.message,'error')}
+  }
+  async function save(){
+    try{
+      await API.putConfig(editor.value);
+      State.configOriginal=editor.value;
+      updateDirty();
+      toast('已保存，热加载中');
+    }catch(e){toast(e.message,'error')}
+  }
+
+  setTimeout(load,50);
+
+  return h('div',{class:'enter'},
+    h('div',{class:'cfg-bar'},
+      saveBtn,reloadBtn,dirty,
+      h('span',{class:'spacer',style:'flex:1'}),
+      h('span',{style:'color:var(--muted);font-size:12.5px'},'Ctrl/Cmd+S 保存'),
+    ),
+    h('div',{class:'editor-wrap'},linenos,editor),
+  );
+}
+
+/* ==================== boot ==================== */
+render();
+window.addEventListener('beforeunload',()=>{stopPolling();stopCountdown()});
+</script>
+</body>
+</html>

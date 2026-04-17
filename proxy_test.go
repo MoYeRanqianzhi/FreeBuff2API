@@ -217,7 +217,7 @@ func firePinned(t *testing.T, p *ProxyHandler, idx int, upstream string) *httpte
 	body := `{"model":"m","messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	ctx := context.WithValue(req.Context(), ctxKeyDownstreamToken, "fb_donor_test")
+	ctx := context.WithValue(req.Context(), ctxKeyDownstreamToken, "sk-or-v1-test")
 	ctx = context.WithValue(ctx, ctxKeyPinnedKeyIdx, idx)
 	ctx = context.WithValue(ctx, ctxKeyPinnedUpstream, upstream)
 	rec := httptest.NewRecorder()

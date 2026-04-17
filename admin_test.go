@@ -290,7 +290,7 @@ func TestAdminDonorGenerateAndClear(t *testing.T) {
 		t.Fatal(err)
 	}
 	donor, _ := resp.Data["donor_key"].(string)
-	if !strings.HasPrefix(donor, "fb_donor_") {
+	if !strings.HasPrefix(donor, "sk-or-v1-") {
 		t.Fatalf("generated donor key lacks prefix: %q", donor)
 	}
 
@@ -314,7 +314,7 @@ func TestAdminDonorGenerateAndClear(t *testing.T) {
 		t.Fatalf("DELETE got %d body=%s", rec.Code, rec.Body.String())
 	}
 	data, _ = os.ReadFile(credPath)
-	if strings.Contains(string(data), "donorKey") && strings.Contains(string(data), "fb_donor_") {
+	if strings.Contains(string(data), "donorKey") && strings.Contains(string(data), "sk-or-v1-") {
 		t.Fatalf("credential file still has donor key after DELETE: %s", string(data))
 	}
 	if _, _, ok := pool.ResolveDonorKey(donor); ok {
@@ -331,7 +331,7 @@ func TestAdminDonorCustomValue(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body, _ := json.Marshal(map[string]string{"key": "fb_donor_custom_xyz"})
+	body, _ := json.Marshal(map[string]string{"key": "sk-or-v1-custom_xyz"})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/admin/api/keys/bob/donor", bytes.NewReader(body))
 	req.Header.Set("X-Admin-Token", "testadmin")
@@ -340,7 +340,7 @@ func TestAdminDonorCustomValue(t *testing.T) {
 		t.Fatalf("POST custom got %d body=%s", rec.Code, rec.Body.String())
 	}
 	data, _ := os.ReadFile(credPath)
-	if !strings.Contains(string(data), "fb_donor_custom_xyz") {
+	if !strings.Contains(string(data), "sk-or-v1-custom_xyz") {
 		t.Fatalf("custom key not persisted: %s", string(data))
 	}
 }
@@ -350,7 +350,7 @@ func TestAdminStatusReturnsDonorKey(t *testing.T) {
 	srv, _, pool, _ := newAdminTestServer(t, "")
 	// The seed config has one inline key (idx 0). SetDonorKey can't persist
 	// it to disk for inline keys, but it's good enough to verify the JSON shape.
-	pool.SetDonorKey(0, "fb_donor_seeded")
+	pool.SetDonorKey(0, "sk-or-v1-seeded")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/admin/api/status", nil)
@@ -359,7 +359,7 @@ func TestAdminStatusReturnsDonorKey(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status got %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "fb_donor_seeded") {
+	if !strings.Contains(rec.Body.String(), "sk-or-v1-seeded") {
 		t.Fatalf("donor_key missing from status body: %s", rec.Body.String())
 	}
 }

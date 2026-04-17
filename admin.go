@@ -334,7 +334,7 @@ func (a *AdminHandler) handleKeyDonor(w http.ResponseWriter, r *http.Request, la
 		}
 		donor := strings.TrimSpace(body.Key)
 		if donor == "" {
-			donor = generateDonorKey()
+			donor = a.generateDonorKey()
 		}
 		if err := a.writeCredentialDonor(label, donor); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -384,11 +384,43 @@ func (a *AdminHandler) writeCredentialDonor(label, donor string) error {
 	return atomicWrite(path, out)
 }
 
-// generateDonorKey returns a fresh random donor key. Format:
-//
-//	fb_donor_<24 hex chars>   (≈96 bits of entropy)
-func generateDonorKey() string {
-	return DonorKeyPrefix + randomHex(12)
+// generateDonorKey returns a fresh random donor key indistinguishable in shape
+// from a real OpenRouter v1 key: `sk-or-v1-<64 hex chars>` (256 bits). The
+// caller guarantees uniqueness by checking against the live donor set + the
+// server/auth api_keys lists; collisions at 2^128 birthday bound are
+// effectively impossible, but we still retry defensively.
+func (a *AdminHandler) generateDonorKey() string {
+	for attempt := 0; attempt < 8; attempt++ {
+		candidate := "sk-or-v1-" + randomHex(32)
+		if a.isDonorKeyUnique(candidate) {
+			return candidate
+		}
+	}
+	// Extremely unlikely: fall through with the last candidate. The caller
+	// will surface a write error if it truly collides.
+	return "sk-or-v1-" + randomHex(32)
+}
+
+// isDonorKeyUnique reports whether candidate collides with any existing donor
+// key in the pool, or with any client/upstream key in the live config.
+func (a *AdminHandler) isDonorKeyUnique(candidate string) bool {
+	for _, d := range a.pool.DonorSnapshot() {
+		if d == candidate {
+			return false
+		}
+	}
+	cfg := a.reloader.Current()
+	for _, k := range cfg.Server.APIKeys {
+		if k == candidate {
+			return false
+		}
+	}
+	for _, k := range cfg.Auth.APIKeys {
+		if k == candidate {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *AdminHandler) handleReload(w http.ResponseWriter, r *http.Request) {
@@ -559,7 +591,7 @@ func (a *AdminHandler) oauthPoll(ctx context.Context, fpID, fpHash, expiresAt st
 	// Issue a donor key bound to this new upstream account. The donor key is
 	// the contributor's reward: it grants them /v1/* access pinned to the
 	// account they just donated, and cannot fan out to other pool members.
-	donor := generateDonorKey()
+	donor := a.generateDonorKey()
 
 	cred := credentialFile{
 		ID:        u.ID,

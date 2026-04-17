@@ -503,7 +503,7 @@ r.donor.appendChild(h('button',{class:'btn btn-ghost btn-sm',title:'清除',oncl
 }else{
 r.donor.appendChild(h('span',{class:'donor-empty'},'无'));
 r.donor.appendChild(h('button',{class:'btn btn-ghost btn-sm',onclick:async e=>{rippleEffect(e);try{await API.setDonor(k.label);toast('已生成');refreshStatus()}catch(e){toast(e.message,'error')}}},'生成'));
-r.donor.appendChild(h('button',{class:'btn btn-ghost btn-sm',title:'自定义',onclick:async e=>{rippleEffect(e);const v=(prompt('输入自定义 donor key (建议 fb_donor_ 前缀)：')||'').trim();if(!v)return;try{await API.setDonor(k.label,v);toast('已设置');refreshStatus()}catch(e){toast(e.message,'error')}}},'自定义'));
+r.donor.appendChild(h('button',{class:'btn btn-ghost btn-sm',title:'自定义',onclick:async e=>{rippleEffect(e);const v=(prompt('输入自定义 donor key（建议 sk-or-v1- 开头以保持 OR 兼容）：')||'').trim();if(!v)return;try{await API.setDonor(k.label,v);toast('已设置');refreshStatus()}catch(e){toast(e.message,'error')}}},'自定义'));
 }
 r.state.donor=donor;
 r.state.canDonor=canDonor;

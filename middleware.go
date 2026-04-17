@@ -21,9 +21,12 @@ const (
 	ctxKeyPinnedUpstream ctxKey = "pinned_upstream_key"
 )
 
-// DonorKeyPrefix identifies a FreeBuff donor key in a client Bearer header.
-// Must be distinct from codebuff (`cb_live_`) and OpenRouter (`sk-or-`).
-const DonorKeyPrefix = "fb_donor_"
+// Donor keys share the exact `sk-or-v1-…` shape as real OpenRouter keys (no
+// distinguishing sub-prefix). Identification is by lookup, not by prefix:
+// authGuard tries ResolveDonorKey BEFORE the OpenRouter fallback branch, so
+// registered donor tokens get pinned while unregistered sk-or keys fall
+// through to OR forwarding as usual. Uniqueness is enforced by the generator
+// (see admin.generateDonorKey) which retries on collision.
 
 func withMiddleware(h http.Handler, reloader *Reloader, pool *KeyPool) http.Handler {
 	return recovery(cors(logging(authGuard(h, reloader, pool))))
@@ -80,19 +83,19 @@ func authGuard(next http.Handler, reloader *Reloader, pool *KeyPool) http.Handle
 			token = strings.TrimPrefix(auth, "Bearer ")
 		}
 
-		// Donor-key branch: checked before server.api_keys so donor-holders can
-		// call /v1/* even when the operator runs an empty api_keys list.
-		if token != "" && strings.HasPrefix(token, DonorKeyPrefix) && pool != nil {
-			idx, upstreamKey, ok := pool.ResolveDonorKey(token)
-			if !ok {
-				http.Error(w, `{"error":{"message":"Invalid API key","type":"authentication_error"}}`, http.StatusUnauthorized)
+		// Donor-key branch: checked before server.api_keys AND before the sk-or
+		// fallback branch, so a donor token (which looks exactly like an
+		// OpenRouter key) gets pinned rather than forwarded to OR. Donor keys
+		// are registered out-of-band by the OAuth flow or admin panel, so
+		// lookup is by value, not by prefix.
+		if token != "" && pool != nil {
+			if idx, upstreamKey, ok := pool.ResolveDonorKey(token); ok {
+				ctx := context.WithValue(r.Context(), ctxKeyDownstreamToken, token)
+				ctx = context.WithValue(ctx, ctxKeyPinnedKeyIdx, idx)
+				ctx = context.WithValue(ctx, ctxKeyPinnedUpstream, upstreamKey)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
-			ctx := context.WithValue(r.Context(), ctxKeyDownstreamToken, token)
-			ctx = context.WithValue(ctx, ctxKeyPinnedKeyIdx, idx)
-			ctx = context.WithValue(ctx, ctxKeyPinnedUpstream, upstreamKey)
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
 		}
 
 		if len(expected) == 0 && !orEnabled {

@@ -148,16 +148,16 @@ func TestAuthGuardDonorKeyHit(t *testing.T) {
 		Upstream: UpstreamConfig{OpenRouter: OpenRouterConfig{Enabled: &enabled}},
 	}
 	env := newAuthEnv(t, cfg)
-	env.pool.SetDonorKey(0, "fb_donor_secret123")
+	env.pool.SetDonorKey(0, "sk-or-v1-secret123")
 
-	status, force, tok, pinned, upstream := runAuthFull(t, env, "Bearer fb_donor_secret123")
+	status, force, tok, pinned, upstream := runAuthFull(t, env, "Bearer sk-or-v1-secret123")
 	if status != http.StatusOK {
 		t.Fatalf("donor key should be accepted; got %d", status)
 	}
 	if force {
 		t.Fatal("donor must not trigger OpenRouter fallback")
 	}
-	if tok != "fb_donor_secret123" {
+	if tok != "sk-or-v1-secret123" {
 		t.Fatalf("token not stashed: %q", tok)
 	}
 	if pinned != 0 {
@@ -168,19 +168,27 @@ func TestAuthGuardDonorKeyHit(t *testing.T) {
 	}
 }
 
-func TestAuthGuardDonorKeyMiss(t *testing.T) {
-	// A fb_donor_ prefix that does not match any registered donor should 401,
-	// not fall through to api_keys / sk-or branches.
+func TestAuthGuardDonorKeyMissFallsThroughToOR(t *testing.T) {
+	// An sk-or-v1- token that is NOT a registered donor key should fall
+	// through to the existing OpenRouter branch — this preserves the pre-v0.10
+	// behaviour for contributors who genuinely use their own OR account.
 	cfg := &Config{
-		Server: ServerConfig{APIKeys: []string{"k1", "fb_donor_fake"}}, // even if pretend-listed, prefix branch runs first
+		Server:   ServerConfig{APIKeys: []string{"k1"}},
+		Upstream: UpstreamConfig{OpenRouter: OpenRouterConfig{BaseURL: "https://openrouter.ai/api/v1"}},
 	}
 	env := newAuthEnv(t, cfg)
-	status, _, _, pinned, _ := runAuthFull(t, env, "Bearer fb_donor_fake")
-	if status != http.StatusUnauthorized {
-		t.Fatalf("unregistered donor should 401, got %d", status)
+	status, force, tok, pinned, _ := runAuthFull(t, env, "Bearer sk-or-v1-abcdef0123456789abcdef0123456789")
+	if status != http.StatusOK {
+		t.Fatalf("unregistered sk-or should still reach OR fallback, got %d", status)
+	}
+	if !force {
+		t.Fatal("force_openrouter should be set for unregistered sk-or token")
 	}
 	if pinned != -1 {
-		t.Fatalf("pinned idx should remain unset, got %d", pinned)
+		t.Fatalf("pin must NOT fire for unregistered donor, got idx=%d", pinned)
+	}
+	if tok == "" {
+		t.Fatal("token must be stashed for OR forwarding")
 	}
 }
 
@@ -188,7 +196,7 @@ func TestAuthGuardDonorKeyDoesNotAffectRegularTokens(t *testing.T) {
 	// A client using a regular api_key must still work with donor branch enabled.
 	cfg := &Config{Server: ServerConfig{APIKeys: []string{"k1"}}}
 	env := newAuthEnv(t, cfg)
-	env.pool.SetDonorKey(0, "fb_donor_existing")
+	env.pool.SetDonorKey(0, "sk-or-v1-existing")
 	status, _, tok, pinned, _ := runAuthFull(t, env, "Bearer k1")
 	if status != http.StatusOK {
 		t.Fatalf("want 200, got %d", status)
@@ -198,6 +206,33 @@ func TestAuthGuardDonorKeyDoesNotAffectRegularTokens(t *testing.T) {
 	}
 	if pinned != -1 {
 		t.Fatalf("pinned must remain unset for non-donor token, got %d", pinned)
+	}
+}
+
+// TestAuthGuardDonorKeyTakesPrecedenceOverSkOr guards a critical invariant:
+// donor keys share the sk-or-v1-… shape with real OpenRouter keys. The donor
+// lookup MUST run before the OR fallback branch — otherwise a registered donor
+// token would get forwarded to OpenRouter (with its own Bearer!) instead of
+// being pinned to the contributor's donated upstream account.
+func TestAuthGuardDonorKeyTakesPrecedenceOverSkOr(t *testing.T) {
+	enabled := true
+	cfg := &Config{
+		Upstream: UpstreamConfig{OpenRouter: OpenRouterConfig{Enabled: &enabled, BaseURL: "https://openrouter.ai/api/v1"}},
+	}
+	env := newAuthEnv(t, cfg)
+	// Full-length donor key (24 hex) so it ALSO matches the OpenRouter regex.
+	donor := "sk-or-v1-abcdef0123456789abcdef01"
+	env.pool.SetDonorKey(0, donor)
+
+	status, force, _, pinned, upstream := runAuthFull(t, env, "Bearer "+donor)
+	if status != http.StatusOK {
+		t.Fatalf("want 200, got %d", status)
+	}
+	if force {
+		t.Fatal("donor must NOT be routed to OpenRouter fallback even though the key matches sk-or regex")
+	}
+	if pinned != 0 || upstream != "upstream-tok" {
+		t.Fatalf("pin missed; pinned=%d upstream=%q", pinned, upstream)
 	}
 }
 

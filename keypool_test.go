@@ -234,7 +234,7 @@ func TestLoadKeySourcesMissingDirIgnored(t *testing.T) {
 func TestLoadKeySourcesReadsDonorKey(t *testing.T) {
 	dir := t.TempDir()
 	// One file with a donor key, one without — verify parallel array alignment.
-	withDonor := `{"authToken":"tok-1","donorKey":"fb_donor_abc123"}`
+	withDonor := `{"authToken":"tok-1","donorKey":"sk-or-v1-abc123"}`
 	noDonor := `{"authToken":"tok-2"}`
 	if err := os.WriteFile(filepath.Join(dir, "alice.json"), []byte(withDonor), 0o644); err != nil {
 		t.Fatal(err)
@@ -250,7 +250,7 @@ func TestLoadKeySourcesReadsDonorKey(t *testing.T) {
 		t.Fatalf("len mismatch: keys=%d labels=%d donors=%d", len(keys), len(labels), len(donors))
 	}
 	// Alice sorts before Bob alphabetically.
-	want := map[string]string{"alice": "fb_donor_abc123", "bob": ""}
+	want := map[string]string{"alice": "sk-or-v1-abc123", "bob": ""}
 	for i, l := range labels {
 		if donors[i] != want[l] {
 			t.Fatalf("label=%q donor=%q want %q", l, donors[i], want[l])
@@ -262,15 +262,15 @@ func TestKeyPoolDonorAPIs(t *testing.T) {
 	p := NewKeyPoolWithDonors(
 		[]string{"acct-a", "acct-b"},
 		[]string{"alice", "bob"},
-		[]string{"fb_donor_aaa", ""},
+		[]string{"sk-or-v1-aaa", ""},
 	)
 	// ResolveDonorKey — hit
-	idx, upstream, ok := p.ResolveDonorKey("fb_donor_aaa")
+	idx, upstream, ok := p.ResolveDonorKey("sk-or-v1-aaa")
 	if !ok || upstream != "acct-a" {
 		t.Fatalf("resolve: idx=%d upstream=%q ok=%v", idx, upstream, ok)
 	}
 	// Miss
-	if _, _, ok := p.ResolveDonorKey("fb_donor_missing"); ok {
+	if _, _, ok := p.ResolveDonorKey("sk-or-v1-missing"); ok {
 		t.Fatalf("resolve: empty-miss should return ok=false")
 	}
 	// Empty input is always a miss (prevents accidental 0-idx match).
@@ -278,8 +278,8 @@ func TestKeyPoolDonorAPIs(t *testing.T) {
 		t.Fatalf("resolve: empty input should never match")
 	}
 	// SetDonorKey / GetDonorKey
-	p.SetDonorKey(1, "fb_donor_bbb")
-	if got := p.GetDonorKey(1); got != "fb_donor_bbb" {
+	p.SetDonorKey(1, "sk-or-v1-bbb")
+	if got := p.GetDonorKey(1); got != "sk-or-v1-bbb" {
 		t.Fatalf("get after set: %q", got)
 	}
 	// Clear by empty string
@@ -298,12 +298,12 @@ func TestKeyPoolReloadPreservesDiskDonorTruth(t *testing.T) {
 	p := NewKeyPoolWithDonors(
 		[]string{"acct-a"},
 		[]string{"alice"},
-		[]string{"fb_donor_old"},
+		[]string{"sk-or-v1-old"},
 	)
 	// Admin in-memory override — should be overwritten by next reload (disk wins).
-	p.SetDonorKey(0, "fb_donor_admin_temp")
-	p.Reload([]string{"acct-a"}, []string{"alice"}, []string{"fb_donor_new"})
-	if got := p.GetDonorKey(0); got != "fb_donor_new" {
+	p.SetDonorKey(0, "sk-or-v1-admin_temp")
+	p.Reload([]string{"acct-a"}, []string{"alice"}, []string{"sk-or-v1-new"})
+	if got := p.GetDonorKey(0); got != "sk-or-v1-new" {
 		t.Fatalf("reload should overwrite in-memory donor from disk; got %q", got)
 	}
 }

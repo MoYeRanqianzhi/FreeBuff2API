@@ -29,3 +29,5 @@
 - [x] 2026-04-17: **错误过滤 + 多账号重试 + RPM 限速（v0.8.0）** —— 上游 4xx/5xx 脱敏为中文通用消息；单请求最多重试 3 个账号；三层令牌桶（global/account/client），reject-only
 - [x] 2026-04-17: **公开众筹登录页（v0.9.0）** —— `/login.html` + `/public/oauth/*` 脱敏薄包装；任意用户 OAuth 登录即可捐号
 - [x] 2026-04-17: **绑定式 donor key（v0.10.0）** —— 众筹成功发放 `sk-or-v1-<64hex>` key（外观与 OR 一致），强绑上游账号；账号限流/熔断时 key 同步不可用，防恶意滥用
+- [x] 2026-04-18: **双激励模式（v0.11.0）** —— `incentive.mode` 可选 `donor_key`（默认）或 `redeem_code`（卡密池一次性发放）；新增 `/admin/api/redeem` 上传/查询 + 面板配置
+- [x] 2026-04-18: **v0.11.0 安全加固** —— 修复三处代码审查发现问题：per-fingerprint 结果缓存防 `/public/oauth/poll` 重复消费；RedeemStore.Pop 写盘失败不再静默；donor 生成全链路 mutex 闭合 TOCTOU

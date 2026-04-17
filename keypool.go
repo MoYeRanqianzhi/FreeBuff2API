@@ -166,6 +166,20 @@ func (p *KeyPool) MarkFailure(idx int) {
 	}
 }
 
+// TripBreaker forces idx into the broken state for the current cooldown.
+// Used by the admin UI to manually take a key out of rotation.
+func (p *KeyPool) TripBreaker(idx int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if idx < 0 || idx >= len(p.entries) {
+		return
+	}
+	e := p.entries[idx]
+	e.Fails = p.threshold
+	e.Broken = true
+	e.BrokenUntil = time.Now().Add(p.cooldown)
+}
+
 // MarkSuccess clears fail counter and breaker state for idx.
 func (p *KeyPool) MarkSuccess(idx int) {
 	p.mu.Lock()

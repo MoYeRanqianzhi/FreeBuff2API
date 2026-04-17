@@ -84,6 +84,29 @@ func TestKeyPoolMarkSuccessResets(t *testing.T) {
 	}
 }
 
+func TestKeyPoolTripBreaker(t *testing.T) {
+	p := NewKeyPool([]string{"a", "b"})
+	p.TripBreaker(0)
+	snap := p.Snapshot()
+	if !snap[0].Broken {
+		t.Fatalf("TripBreaker should mark key broken")
+	}
+	if snap[0].Fails < p.Threshold() {
+		t.Fatalf("TripBreaker should set fails >= threshold, got %d", snap[0].Fails)
+	}
+	if snap[0].BrokenUntil.Before(time.Now()) {
+		t.Fatalf("TripBreaker should set BrokenUntil in the future")
+	}
+	// b is still healthy; Next() should skip a and return b.
+	k, idx := p.Next()
+	if k != "b" || idx != 1 {
+		t.Fatalf("Next should skip tripped key, got (%q,%d)", k, idx)
+	}
+	// Out-of-range is a no-op.
+	p.TripBreaker(-1)
+	p.TripBreaker(99)
+}
+
 func TestKeyPoolAllBrokenFallback(t *testing.T) {
 	p := NewKeyPoolWithLabels([]string{"a", "b"}, []string{"t", "t"})
 	// Trip both.

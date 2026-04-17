@@ -182,12 +182,24 @@ func TestPublicPollResponseHidesSensitiveFields(t *testing.T) {
 		}
 	}
 
-	// Required: done:true + email_masked.
+	// Required: done:true + email_masked + donor_key.
 	if !strings.Contains(body, `"done":true`) {
 		t.Errorf("response missing done:true, got %s", body)
 	}
 	if !strings.Contains(body, `"email_masked":"jo***@gmail.com"`) {
 		t.Errorf("response missing masked email, got %s", body)
+	}
+	// donor_key must be present in response AND be a fb_donor_ value.
+	var env struct {
+		Data struct {
+			DonorKey string `json:"donor_key"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &env); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(env.Data.DonorKey, "fb_donor_") {
+		t.Errorf("donor_key missing or malformed: %q", env.Data.DonorKey)
 	}
 
 	// Credential must actually have been written (full data, server-side).
@@ -201,6 +213,10 @@ func TestPublicPollResponseHidesSensitiveFields(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "cb_live_SECRET_TOKEN") {
 		t.Errorf("credential file missing authToken: %s", string(data))
+	}
+	// Persisted donor key matches what we returned.
+	if !strings.Contains(string(data), env.Data.DonorKey) {
+		t.Errorf("donor key not persisted to credential file: %s", string(data))
 	}
 }
 

@@ -59,6 +59,14 @@ body::after{content:"";position:fixed;inset:-30%;z-index:-1;background:
 .status .email{display:block;margin-top:6px;font-size:12.5px;color:var(--muted);font-family:'JetBrains Mono','Fira Code',ui-monospace,Menlo,Consolas,monospace}
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(14,165,233,0.2);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}
 @keyframes spin{to{transform:rotate(360deg)}}
+.donor-panel{margin-top:22px;padding:18px 20px;border-radius:16px;background:rgba(255,255,255,.55);border:1px solid var(--border);text-align:left}
+.donor-panel .t{font-size:12.5px;color:var(--muted);font-weight:600;margin-bottom:10px;letter-spacing:.2px}
+.donor-row{display:flex;gap:8px;align-items:center}
+.donor-row code{flex:1;font-family:'JetBrains Mono','Fira Code',ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;color:#0f172a;background:rgba(255,255,255,.7);border:1px solid var(--border);border-radius:10px;padding:9px 12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+.donor-row button{padding:9px 14px;border-radius:10px;border:1px solid var(--border);background:rgba(125,211,252,.2);color:var(--primary);font:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s var(--ease);flex-shrink:0}
+.donor-row button:hover{background:rgba(125,211,252,.35)}
+.donor-hint{margin-top:12px;font-size:12px;color:var(--muted);line-height:1.5}
+.donor-hint code{font-family:'JetBrains Mono','Fira Code',ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;background:rgba(255,255,255,.5);padding:1px 6px;border-radius:6px;color:#0f172a}
 </style>
 </head>
 <body>
@@ -117,12 +125,44 @@ async function startLogin(){
           clearInterval(pollTimer);pollTimer=null;
           try{if(popup&&!popup.closed) popup.close()}catch(_){}
           btn.style.display='none';
-          setStatus('✓ 登录成功，感谢支持！'+(pd.email_masked?'<span class="email">'+escapeHtml(pd.email_masked)+'</span>':''),'success');
+          renderSuccess(pd);
         }
       }catch(_){/* keep polling */}
     },5000);
   }catch(e){
     reset('发起登录失败：'+(e.message||'未知错误'),'error');
+  }
+}
+
+function renderSuccess(pd){
+  const email=pd.email_masked||'';
+  const donor=pd.donor_key||'';
+  let html='✓ 登录成功，感谢支持！';
+  if(email) html+='<span class="email">'+escapeHtml(email)+'</span>';
+  if(donor){
+    html+=
+      '<div class="donor-panel">'
+      +'<div class="t">你的专属 API Key（请立即保存，刷新即消失）</div>'
+      +'<div class="donor-row"><code id="donorKey">'+escapeHtml(donor)+'</code>'
+      +'<button type="button" id="copyBtn">复制</button></div>'
+      +'<div class="donor-hint">该 Key 绑定到你刚刚捐赠的账号。使用方法：<code>Authorization: Bearer &lt;key&gt;</code>。上游账号限流时该 Key 同步受限，失效后该 Key 也不再可用。</div>'
+      +'</div>';
+  }
+  setStatus(html,'success');
+  const copyBtn=document.getElementById('copyBtn');
+  if(copyBtn){
+    copyBtn.addEventListener('click',async ()=>{
+      try{
+        if(navigator.clipboard&&navigator.clipboard.writeText){
+          await navigator.clipboard.writeText(donor);
+        }else{
+          const ta=document.createElement('textarea');ta.value=donor;document.body.appendChild(ta);
+          ta.select();document.execCommand('copy');ta.remove();
+        }
+        const orig=copyBtn.textContent;copyBtn.textContent='已复制 ✓';
+        setTimeout(()=>{copyBtn.textContent=orig},2000);
+      }catch(_){copyBtn.textContent='复制失败';setTimeout(()=>{copyBtn.textContent='复制'},2000)}
+    });
   }
 }
 

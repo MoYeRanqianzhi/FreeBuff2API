@@ -28,3 +28,4 @@
 - [x] 2026-04-17: **Admin UI + REST API（v0.7.0）** —— token.key 鉴权，单文件 glassmorphism 前端（淡蓝青绿渐变），可热改 config + 增删 key + 手动熔断
 - [x] 2026-04-17: **错误过滤 + 多账号重试 + RPM 限速（v0.8.0）** —— 上游 4xx/5xx 脱敏为中文通用消息；单请求最多重试 3 个账号；三层令牌桶（global/account/client），reject-only
 - [x] 2026-04-17: **公开众筹登录页（v0.9.0）** —— `/login.html` + `/public/oauth/*` 脱敏薄包装；任意用户 OAuth 登录即可捐号
+- [x] 2026-04-17: **绑定式 donor key（v0.10.0）** —— 众筹成功发放 `fb_donor_<hex>` key，强绑上游账号；账号限流/熔断时 key 同步不可用，防恶意滥用

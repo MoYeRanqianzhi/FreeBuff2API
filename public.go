@@ -69,12 +69,17 @@ func (p *PublicHandler) handlePoll(w http.ResponseWriter, r *http.Request) {
 		writeOK(w, map[string]any{"pending": true})
 		return
 	}
-	// Success — log full info on the server, return only masked email to client.
-	log.Printf("public oauth: saved credential label=%s email=%s from=%s",
-		res.Label, res.Email, clientIP(r))
+	// Success — log full info on the server, return only masked email + the
+	// donor key to the client. The donor key is the reward: contributor uses
+	// it to call /v1/* pinned to their own donated account. It's OK to return
+	// in plaintext because the device-code flow is one-shot (only the session
+	// that initiated the fingerprint can retrieve it).
+	log.Printf("public oauth: saved credential label=%s email=%s donor=%s from=%s",
+		res.Label, res.Email, fingerprint(res.DonorKey), clientIP(r))
 	writeOK(w, map[string]any{
 		"done":         true,
 		"email_masked": maskEmail(res.Email),
+		"donor_key":    res.DonorKey,
 	})
 }
 

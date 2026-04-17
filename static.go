@@ -23,3 +23,25 @@ func adminStatic() http.Handler {
 	}
 	return http.FileServer(http.FS(sub))
 }
+
+// loginHandler serves the public crowdfunding login page at /login.html.
+// Only this single path is served — the rest of static/ stays behind /admin/.
+// We deliberately do NOT expose a FileServer here because static/index.html
+// belongs to the admin surface and its existence should not be discoverable
+// without the admin token.
+func loginHandler() http.Handler {
+	data, err := adminAssets.ReadFile("static/login.html")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Path != "/login.html" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Write(data)
+	})
+}

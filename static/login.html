@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GitHub 众筹登录</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --primary:#0ea5e9;--primary-light:#38bdf8;--cyan:#06b6d4;--teal:#14b8a6;--teal-light:#5eead4;
+  --sky:#7dd3fc;--mint:#a7f3d0;--ok:#34d399;--warn:#fbbf24;--err:#f87171;
+  --text:#334155;--muted:#94a3b8;
+  --ease:cubic-bezier(0.2,0.8,0.2,1);
+  --glass:rgba(255,255,255,0.45);--border:rgba(255,255,255,0.55);
+  --shadow:0 8px 32px rgba(14,165,233,0.08),0 1px 1px rgba(255,255,255,0.6) inset;
+  --shadow-hover:0 12px 40px rgba(14,165,233,0.14),0 1px 2px rgba(255,255,255,0.8) inset;
+}
+html,body{height:100%}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--text);background:#eef7fc;min-height:100vh;overflow-x:hidden;position:relative;line-height:1.6;-webkit-font-smoothing:antialiased}
+
+body::before{content:"";position:fixed;inset:-30%;z-index:-2;background:
+  radial-gradient(ellipse 60% 50% at 15% 25%, rgba(186,230,253,0.9) 0%, transparent 55%),
+  radial-gradient(ellipse 50% 60% at 80% 20%, rgba(153,246,228,0.8) 0%, transparent 55%),
+  radial-gradient(ellipse 55% 45% at 50% 70%, rgba(165,243,252,0.7) 0%, transparent 50%),
+  radial-gradient(ellipse 40% 50% at 85% 80%, rgba(167,243,208,0.6) 0%, transparent 50%),
+  radial-gradient(ellipse 45% 40% at 20% 85%, rgba(224,242,254,0.8) 0%, transparent 50%),
+  linear-gradient(160deg,#f0f9ff 0%,#e0f7fa 40%,#ecfdf5 100%);
+  animation:bgFlow 18s ease-in-out infinite alternate}
+body::after{content:"";position:fixed;inset:-30%;z-index:-1;background:
+  radial-gradient(ellipse 35% 35% at 30% 40%, rgba(103,232,249,0.35) 0%, transparent 60%),
+  radial-gradient(ellipse 30% 30% at 70% 60%, rgba(94,234,212,0.3) 0%, transparent 60%);
+  animation:bgGlow 12s ease-in-out infinite alternate-reverse;filter:blur(60px)}
+@keyframes bgFlow{0%{transform:translate3d(0,0,0) scale(1) rotate(0deg)} 33%{transform:translate3d(3%,2%,0) scale(1.04) rotate(0.5deg)} 66%{transform:translate3d(-2%,4%,0) scale(1.06) rotate(-0.3deg)} 100%{transform:translate3d(1%,-2%,0) scale(1.02) rotate(0.2deg)}}
+@keyframes bgGlow{0%{transform:translate3d(5%,-3%,0) scale(1)} 50%{transform:translate3d(-5%,5%,0) scale(1.15)} 100%{transform:translate3d(3%,2%,0) scale(1.05)}}
+
+.glass{background:var(--glass);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);border:1px solid var(--border);box-shadow:var(--shadow);border-radius:22px;position:relative}
+.glass::before{content:"";position:absolute;top:0;left:10%;right:10%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.8),transparent);pointer-events:none;border-radius:inherit}
+.glass::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(255,255,255,0.7) 0%,rgba(255,255,255,0.15) 40%,rgba(167,243,208,0.2) 60%,rgba(255,255,255,0.6) 100%);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+
+.enter{opacity:0;transform:translateY(18px);animation:enter .55s var(--ease) forwards}
+@keyframes enter{to{opacity:1;transform:translateY(0)}}
+
+.wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px}
+.card{width:100%;max-width:520px;padding:52px 44px;text-align:center}
+
+.hint{font-size:32px;color:var(--text);margin-bottom:36px;line-height:1.35;font-weight:800;letter-spacing:-.3px;background:linear-gradient(135deg,var(--cyan),var(--teal));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.hint .small{display:block;color:var(--muted);font-size:13px;font-weight:400;margin-top:12px;letter-spacing:0;-webkit-text-fill-color:var(--muted)}
+
+.btn{border:none;cursor:pointer;font:inherit;color:var(--text);padding:13px 22px;border-radius:14px;font-size:14.5px;font-weight:600;transition:all .3s var(--ease);position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;gap:10px;width:100%}
+.btn:disabled{opacity:.6;cursor:not-allowed}
+.btn-primary{background:linear-gradient(135deg,#24292f,#1f2328);box-shadow:0 6px 20px rgba(36,41,47,.25),inset 0 1px 2px rgba(255,255,255,.1);color:#fff}
+.btn-primary:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 10px 28px rgba(36,41,47,.32),inset 0 1px 2px rgba(255,255,255,.15)}
+.btn-primary:active:not(:disabled){transform:translateY(0) scale(.97)}
+.btn svg{width:20px;height:20px;flex-shrink:0}
+
+.status{margin-top:24px;font-size:13.5px;color:var(--muted);min-height:40px;line-height:1.6}
+.status.success{color:var(--teal)}
+.status.error{color:var(--err)}
+.status .email{display:block;margin-top:6px;font-size:12.5px;color:var(--muted);font-family:'JetBrains Mono','Fira Code',ui-monospace,Menlo,Consolas,monospace}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(14,165,233,0.2);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="glass card enter">
+<div class="hint">
+GitHub 众筹计划，推荐使用小号登录
+<span class="small">点击按钮将在新窗口打开 GitHub 登录页</span>
+</div>
+<button id="loginBtn" class="btn btn-primary">
+<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+<span id="loginBtnText">使用 GitHub 登录</span>
+</button>
+<div id="status" class="status"></div>
+</div>
+</div>
+<script>
+(function(){
+const btn=document.getElementById('loginBtn');
+const btnText=document.getElementById('loginBtnText');
+const statusEl=document.getElementById('status');
+let pollTimer=null;
+let popup=null;
+
+function setStatus(html,cls){
+  statusEl.className='status'+(cls?' '+cls:'');
+  statusEl.innerHTML=html;
+}
+
+async function startLogin(){
+  btn.disabled=true;
+  btnText.textContent='正在请求登录链接…';
+  setStatus('');
+  try{
+    const r=await fetch('/public/oauth/start',{method:'POST'});
+    const j=await r.json();
+    if(!r.ok||!j.ok){throw new Error((j&&j.error)||('HTTP '+r.status))}
+    const d=j.data;
+    popup=window.open(d.login_url,'_blank','width=600,height=720');
+    btnText.textContent='等待 GitHub 登录完成…';
+    setStatus('<span class="spinner"></span>请在新窗口中完成 GitHub 授权');
+    let attempts=0;
+    pollTimer=setInterval(async ()=>{
+      attempts++;
+      if(attempts>60){
+        clearInterval(pollTimer);pollTimer=null;
+        reset('登录超时，请重试','error');
+        return;
+      }
+      try{
+        const pr=await fetch('/public/oauth/poll?fp='+encodeURIComponent(d.fingerprint_id)+'&fph='+encodeURIComponent(d.fingerprint_hash)+'&exp='+encodeURIComponent(d.expires_at));
+        const pj=await pr.json();
+        if(!pr.ok||!pj.ok) return; // keep polling on transient err
+        const pd=pj.data;
+        if(pd&&pd.done){
+          clearInterval(pollTimer);pollTimer=null;
+          try{if(popup&&!popup.closed) popup.close()}catch(_){}
+          btn.style.display='none';
+          setStatus('✓ 登录成功，感谢支持！'+(pd.email_masked?'<span class="email">'+escapeHtml(pd.email_masked)+'</span>':''),'success');
+        }
+      }catch(_){/* keep polling */}
+    },5000);
+  }catch(e){
+    reset('发起登录失败：'+(e.message||'未知错误'),'error');
+  }
+}
+
+function reset(msg,cls){
+  btn.disabled=false;
+  btnText.textContent='使用 GitHub 登录';
+  if(msg) setStatus(escapeHtml(msg),cls);
+  if(pollTimer){clearInterval(pollTimer);pollTimer=null}
+}
+
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+
+btn.addEventListener('click',startLogin);
+})();
+</script>
+</body>
+</html>

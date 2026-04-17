@@ -32,6 +32,7 @@
 - 2026-04-17: **移除 /v1/models 端点（v0.6.1）** —— 静态白名单会过期，OpenRouter 本身也不暴露稳定目录；model 字段交由客户端决定并直通上游
 - 2026-04-17: **Admin UI + REST（v0.7.0）** —— 独立 `token.key` 文件承载 admin token（缺失即 `/admin/*` 全 404），与 `server.api_keys` 语义分离；REST 端点 `/admin/api/{status,config,keys,reload}` 全部热加载文件而非进程内修改（fsnotify 自然 reload）；单文件 glassmorphism 前端（淡蓝青绿渐变），零依赖 + `//go:embed`。详见 `memory/admin-ui.md`
 - 2026-04-17: **错误过滤 + 多账号重试 + RPM 限速（v0.8.0）** —— 三件事合并发布：(1) 上游 4xx/5xx 错误体统一脱敏，不再泄漏 "account suspended" 等细节；空池/繁忙均中文提示；(2) 单次请求内最多重试 3 个账号（`min(3, healthy)`），覆盖 401/402/403/429/5xx/网络错误，429 不触发熔断；(3) 可选 `limits.{global,account,client}_rpm` 三层令牌桶，reject-only（不排队），`account_rpm` 天然充当负载均衡器（round-robin 跳过达限账号），保持零外部依赖
+- 2026-04-17: **公开众筹登录页（v0.9.0）** —— `/login.html` 免鉴权，任意用户 OAuth 登录后自动把 codebuff 凭证存入 `auths/` 扩充号池。`/public/oauth/{start,poll}` 为 admin OAuth 的脱敏薄包装：`start` 只回 `login_url/fingerprint_*`，`poll` 成功时只回 `{done:true, email_masked:"jo***@gmail.com"}`，**不**含 authToken/user id/name/label。label 沿用 `sanitizeLabel(email)`，fingerprint 前缀 `fp_pub_` 与 admin `fp_admin_` 分离便于审计。`/index.html` 保持 404 以避免暴露 admin 面板存在
 
 ## 实测性能（v0.1.0）
 - TTFT: 2.2 ~ 3.2s（含 runId 注册 ~700ms）

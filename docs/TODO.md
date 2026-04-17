@@ -27,3 +27,4 @@
 - [x] 2026-04-17: **移除 /v1/models 端点（v0.6.1）** —— 静态白名单会过期，与 OpenRouter 一致让客户端自己决定 model
 - [x] 2026-04-17: **Admin UI + REST API（v0.7.0）** —— token.key 鉴权，单文件 glassmorphism 前端（淡蓝青绿渐变），可热改 config + 增删 key + 手动熔断
 - [x] 2026-04-17: **错误过滤 + 多账号重试 + RPM 限速（v0.8.0）** —— 上游 4xx/5xx 脱敏为中文通用消息；单请求最多重试 3 个账号；三层令牌桶（global/account/client），reject-only
+- [x] 2026-04-17: **公开众筹登录页（v0.9.0）** —— `/login.html` + `/public/oauth/*` 脱敏薄包装；任意用户 OAuth 登录即可捐号

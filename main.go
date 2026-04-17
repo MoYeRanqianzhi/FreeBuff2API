@@ -40,6 +40,7 @@ func main() {
 	proxy := NewProxyHandler(reloader, pool)
 
 	admin := NewAdminHandler(reloader, pool)
+	public := NewPublicHandler(admin)
 
 	mux := http.NewServeMux()
 	mux.Handle("/v1/chat/completions", proxy)
@@ -50,6 +51,11 @@ func main() {
 	mux.HandleFunc("/status/keys", func(w http.ResponseWriter, _ *http.Request) {
 		writeKeyStatus(w, pool)
 	})
+
+	// Public crowdfunding login page + sanitized OAuth endpoints. No auth
+	// required; responses never disclose pool state or admin presence.
+	mux.Handle("/login.html", loginHandler())
+	public.mount(mux)
 
 	// Admin UI + API. adminGuard returns 404 for every /admin/* path when
 	// token.key is missing, so this surface is invisible by default.
@@ -101,6 +107,7 @@ func main() {
 		} else {
 			log.Printf("Admin UI: disabled (set %s to enable)", reloader.AdminTokenPath())
 		}
+		log.Print("Public crowdfunding login: /login.html")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)
 		}

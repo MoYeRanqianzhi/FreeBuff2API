@@ -95,7 +95,11 @@ main{flex:1;padding:36px 32px;max-width:1100px;margin:0 auto;width:100%}
 /* ── Key 表格 ── */
 .section-title{font-size:17px;font-weight:700;margin-bottom:18px;display:flex;align-items:center;gap:10px;color:var(--text);padding-left:4px}
 .table{display:flex;flex-direction:column;gap:12px}
-.row{display:grid;grid-template-columns:minmax(160px,1.4fr) 1.2fr 1fr 1fr auto;align-items:center;gap:18px;padding:16px 22px;transition:all .3s var(--ease)}
+.row{display:grid;grid-template-columns:minmax(160px,1.4fr) 1.2fr 1fr 1fr minmax(210px,1.6fr) auto;align-items:center;gap:18px;padding:16px 22px;transition:all .3s var(--ease)}
+.donor{display:flex;align-items:center;gap:6px;min-width:0}
+.donor code{font-family:var(--mono-font);font-size:12px;color:var(--mono);background:rgba(255,255,255,.4);border:1px solid var(--border);border-radius:8px;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px;cursor:text}
+.donor .donor-empty{color:var(--muted);font-size:12px;font-style:italic}
+.donor .btn-sm{padding:5px 9px;font-size:11.5px}
 .row:hover{background:var(--glass-hover);transform:translateX(3px);box-shadow:var(--shadow-hover)}
 .fp{font-family:var(--mono-font);font-size:13px;color:var(--mono);letter-spacing:.3px;font-weight:500}
 .lbl{color:var(--text);font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -145,7 +149,7 @@ footer.botbar{padding:16px 32px;border-top:1px solid rgba(255,255,255,0.5);backg
 .version{font-family:var(--mono-font);opacity:.7;color:var(--primary)}
 
 /* ── 响应式 ── */
-@media(max-width:768px){main{padding:24px 18px} header.topbar{padding:12px 18px;gap:10px;flex-wrap:wrap} .tabs{margin-left:0;order:3;width:100%} .stat-row{grid-template-columns:1fr;gap:14px;margin-bottom:24px} .row{grid-template-columns:1fr;gap:10px;padding:14px 18px} .row .fp{font-size:12.5px} .actions{justify-content:flex-start} .fab{right:18px;bottom:80px;width:50px;height:50px;font-size:24px} .editor-wrap{border-radius:16px}}
+@media(max-width:768px){main{padding:24px 18px} header.topbar{padding:12px 18px;gap:10px;flex-wrap:wrap} .tabs{margin-left:0;order:3;width:100%} .stat-row{grid-template-columns:1fr;gap:14px;margin-bottom:24px} .row{grid-template-columns:1fr;gap:10px;padding:14px 18px} .row .fp{font-size:12.5px} .donor code{max-width:100%} .actions{justify-content:flex-start} .fab{right:18px;bottom:80px;width:50px;height:50px;font-size:24px} .editor-wrap{border-radius:16px}}
 /* ── Config 可视化面板 ── */
 .cfg-panels{display:flex;flex-direction:column;gap:20px}
 .cfg-panel{padding:24px 26px}
@@ -234,6 +238,8 @@ addKey:       (label,token)=>api('/admin/api/keys',{method:'POST',body:JSON.stri
 delKey:       (label)=>api('/admin/api/keys/'+encodeURIComponent(label),{method:'DELETE'}),
 trip:         (idx)=>api('/admin/api/keys/'+idx+'/trip',{method:'POST'}),
 reset:        (idx)=>api('/admin/api/keys/'+idx+'/reset',{method:'POST'}),
+setDonor:     (label,key)=>api('/admin/api/keys/'+encodeURIComponent(label)+'/donor',{method:'POST',body:JSON.stringify({key:key||''})}),
+clearDonor:   (label)=>api('/admin/api/keys/'+encodeURIComponent(label)+'/donor',{method:'DELETE'}),
 reload:       ()=>api('/admin/api/reload',{method:'POST'}),
 oauthStart:   ()=>api('/admin/api/oauth/start',{method:'POST'}),
 oauthPoll:    (fp,fph,exp)=>api(`/admin/api/oauth/poll?fp=${encodeURIComponent(fp)}&fph=${encodeURIComponent(fph)}&exp=${encodeURIComponent(exp)}`),
@@ -461,11 +467,12 @@ const dotEl=h('span',{class:'dot'});
 const stTextEl=document.createTextNode('');
 const statusEl=h('div',{class:'status'}, dotEl, stTextEl);
 const cdEl=h('div',{class:'countdown'});
+const donorEl=h('div',{class:'donor'});
 const actionsEl=h('div',{class:'actions'});
 const row=h('div',{class:'glass row enter',style:`animation-delay:${Math.min(i,8)*40}ms`},
-fpEl, lblEl, statusEl, cdEl, actionsEl);
+fpEl, lblEl, statusEl, cdEl, donorEl, actionsEl);
 container.appendChild(row);
-r={el:row, fp:fpEl, lbl:lblEl, dot:dotEl, stText:stTextEl, cd:cdEl, actions:actionsEl, state:{}};
+r={el:row, fp:fpEl, lbl:lblEl, dot:dotEl, stText:stTextEl, cd:cdEl, donor:donorEl, actions:actionsEl, state:{}};
 rows.set(k.index, r);
 }
 const fp=k.fingerprint||'-';
@@ -480,6 +487,26 @@ r.cd.setAttribute('data-until', until);
 if(!until) r.cd.textContent='';
 else r.cd.textContent=fmtDuration(new Date(until).getTime()-Date.now());
 r.state.until=until;
+}
+const donor=k.donor_key||'';
+const canDonor=!!k.label;
+if(r.state.donor!==donor || r.state.canDonor!==canDonor){
+r.donor.innerHTML='';
+if(!canDonor){
+r.donor.appendChild(h('span',{class:'donor-empty'},'—'));
+}else if(donor){
+const codeEl=h('code',{title:donor},donor);
+r.donor.appendChild(codeEl);
+r.donor.appendChild(h('button',{class:'btn btn-ghost btn-sm',title:'复制',onclick:async e=>{rippleEffect(e);try{await navigator.clipboard.writeText(donor);toast('已复制')}catch{toast('复制失败','error')}}},'复制'));
+r.donor.appendChild(h('button',{class:'btn btn-ghost btn-sm',title:'重新生成',onclick:async e=>{rippleEffect(e);if(!await confirmModal('重新生成后旧 key 失效，继续?'))return;try{const d=await API.setDonor(k.label);toast('已重置');refreshStatus()}catch(e){toast(e.message,'error')}}},'重置'));
+r.donor.appendChild(h('button',{class:'btn btn-ghost btn-sm',title:'清除',onclick:async e=>{rippleEffect(e);if(!await confirmModal('清除该 donor key，持有者将无法调用 /v1/*，继续?'))return;try{await API.clearDonor(k.label);toast('已清除');refreshStatus()}catch(e){toast(e.message,'error')}}},'清除'));
+}else{
+r.donor.appendChild(h('span',{class:'donor-empty'},'无'));
+r.donor.appendChild(h('button',{class:'btn btn-ghost btn-sm',onclick:async e=>{rippleEffect(e);try{await API.setDonor(k.label);toast('已生成');refreshStatus()}catch(e){toast(e.message,'error')}}},'生成'));
+r.donor.appendChild(h('button',{class:'btn btn-ghost btn-sm',title:'自定义',onclick:async e=>{rippleEffect(e);const v=(prompt('输入自定义 donor key (建议 fb_donor_ 前缀)：')||'').trim();if(!v)return;try{await API.setDonor(k.label,v);toast('已设置');refreshStatus()}catch(e){toast(e.message,'error')}}},'自定义'));
+}
+r.state.donor=donor;
+r.state.canDonor=canDonor;
 }
 if(r.state.broken!==broken){
 r.actions.innerHTML='';
@@ -823,8 +850,15 @@ function buildVisualPanels(yamlStr){
     mkField('auth.dir','认证目录',{ph:'auths'}),
     mkField('auth.watch_interval','扫描间隔',{ph:'15s'}),
   ));
-  // Logging
+  // Limits (RPM caps)
   visualView.appendChild(h('div',{class:'glass cfg-panel enter',style:'animation-delay:240ms'},
+    h('div',{class:'panel-title'},h('span',{class:'icon'}),'Limits (RPM)'),
+    mkField('limits.global_rpm','全局 RPM',{ph:'0 = 不限'}),
+    mkField('limits.account_rpm','单账号 RPM',{ph:'0 = 不限'}),
+    mkField('limits.client_rpm','单客户端 RPM',{ph:'0 = 不限'}),
+  ));
+  // Logging
+  visualView.appendChild(h('div',{class:'glass cfg-panel enter',style:'animation-delay:300ms'},
     h('div',{class:'panel-title'},h('span',{class:'icon'}),'Logging'),
     mkField('logging.level','日志级别',{options:['debug','info','warn','error']}),
   ));
@@ -877,6 +911,14 @@ function replaceListBlock(yaml,section,field,items){
   return out.join('\n');
 }
 
+// NUMERIC_FIELDS lists YAML paths whose values are parsed as int on the Go
+// side. Empty input from the visual panel must serialize as `0`, not `""`, or
+// yaml.Unmarshal into int will fail.
+const NUMERIC_FIELDS=new Set([
+  'limits.global_rpm','limits.account_rpm','limits.client_rpm',
+  'auth.breaker.threshold',
+]);
+
 function applyVisualToYaml(){
   // Merge visual field changes back into YAML text.
   let yaml=editor.value||State.configOriginal;
@@ -889,16 +931,46 @@ function applyVisualToYaml(){
       yaml=replaceListBlock(yaml,parts[0],parts[1],items);
       continue;
     }
-    const val=(typeof raw==='function')?raw():raw;
+    let val=(typeof raw==='function')?raw():raw;
+    if(val==null) val='';
     const parts=key.split('.');
     const field=parts[parts.length-1];
+    const isNumeric=NUMERIC_FIELDS.has(key);
+    // Numeric fields: empty input means "unset / default" → serialize as 0.
+    // Never wrap numbers in quotes.
+    if(isNumeric){
+      const trimmed=String(val).trim();
+      val=trimmed===''?'0':trimmed;
+    }
+    const needsQuote=!isNumeric&&(/[: #\[\]{}]/.test(val)||val==='');
+    const quoted=needsQuote?'"'+val+'"':val;
     const re=new RegExp('(^\\s+'+field+':)\\s.*$','m');
     if(re.test(yaml)){
-      const needsQuote=/[: #\[\]{}]/.test(val)||val==='';
-      yaml=yaml.replace(re,'$1 '+(needsQuote?'"'+val+'"':val));
+      yaml=yaml.replace(re,'$1 '+quoted);
+    } else if(parts.length===2){
+      // Field's parent section may not exist yet — add it (or append the field
+      // under an existing section). This is how newly-added panels like
+      // `limits.*` can write into configs that never had the section.
+      // Skip numeric fields whose value is still the default 0 — no reason to
+      // clutter user configs with no-op zero entries.
+      if(isNumeric && quoted==='0') continue;
+      yaml=upsertSectionField(yaml,parts[0],field,quoted);
     }
   }
   return yaml;
+}
+
+// upsertSectionField adds `field: value` to a top-level section; if the section
+// itself is missing, appends the whole block. Value must already be quoted if
+// needed by the caller.
+function upsertSectionField(yaml,section,field,quotedValue){
+  const sectionRe=new RegExp('^'+section+':\\s*$','m');
+  if(sectionRe.test(yaml)){
+    // Insert `  field: value` as the first child line after the section header.
+    return yaml.replace(sectionRe,match=>match+'\n  '+field+': '+quotedValue);
+  }
+  const prefix=yaml.endsWith('\n')?'':'\n';
+  return yaml+prefix+'\n'+section+':\n  '+field+': '+quotedValue+'\n';
 }
 
 function setMode(m){

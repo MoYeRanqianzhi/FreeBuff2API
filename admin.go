@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -97,8 +98,10 @@ func (a *AdminHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Fails       int    `json:"fails"`
 		Broken      bool   `json:"broken"`
 		BrokenUntil string `json:"broken_until,omitempty"`
+		DonorKey    string `json:"donor_key,omitempty"`
 	}
 	snap := a.pool.Snapshot()
+	donors := a.pool.DonorSnapshot()
 	keys := make([]keyView, 0, len(snap))
 	for i, e := range snap {
 		kv := keyView{
@@ -110,6 +113,9 @@ func (a *AdminHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		if e.Broken {
 			kv.BrokenUntil = e.BrokenUntil.Format(time.RFC3339)
+		}
+		if i < len(donors) {
+			kv.DonorKey = donors[i]
 		}
 		keys = append(keys, kv)
 	}
@@ -139,12 +145,9 @@ func (a *AdminHandler) getConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("read config: %v", err))
 		return
 	}
-	redacted, err := redactYAMLKeys(raw)
-	if err != nil {
-		// Fall back to raw if YAML is malformed — admin needs to see it to fix it.
-		redacted = raw
-	}
-	writeOK(w, map[string]any{"yaml": string(redacted)})
+	// The admin panel is protected by token.key; keys are returned in clear so
+	// the operator can audit / copy them directly (matches CLIProxyAPI UX).
+	writeOK(w, map[string]any{"yaml": string(raw)})
 }
 
 func (a *AdminHandler) putConfig(w http.ResponseWriter, r *http.Request) {
@@ -243,33 +246,44 @@ func (a *AdminHandler) handleKeys(w http.ResponseWriter, r *http.Request) {
 
 func (a *AdminHandler) handleKeySub(w http.ResponseWriter, r *http.Request) {
 	sub := strings.TrimPrefix(r.URL.Path, "/admin/api/keys/")
+	sub = strings.TrimSuffix(sub, "/")
 	if sub == "" {
 		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	parts := strings.SplitN(sub, "/", 2)
 
-	// /admin/api/keys/{idx}/trip or /reset
-	if len(parts) == 2 {
-		idx, err := strconv.Atoi(parts[0])
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid index")
+	// /admin/api/keys/{idx}/trip or /reset — only if parts[0] parses as index.
+	// Otherwise fall through so that labels containing an accidental trailing
+	// "/" don't get misread as index-based actions.
+	if len(parts) == 2 && parts[1] != "" {
+		if idx, err := strconv.Atoi(parts[0]); err == nil {
+			if r.Method != http.MethodPost {
+				writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+				return
+			}
+			switch parts[1] {
+			case "trip":
+				a.pool.TripBreaker(idx)
+				writeOK(w, map[string]any{"idx": idx, "action": "trip"})
+			case "reset":
+				a.pool.MarkSuccess(idx)
+				writeOK(w, map[string]any{"idx": idx, "action": "reset"})
+			default:
+				writeErr(w, http.StatusNotFound, "unknown action")
+			}
 			return
 		}
-		if r.Method != http.MethodPost {
-			writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+
+	// /admin/api/keys/{label}/donor — POST (set/generate) or DELETE (clear).
+	if len(parts) == 2 && parts[1] == "donor" {
+		label := parts[0]
+		if !isValidLabel(label) {
+			writeErr(w, http.StatusBadRequest, "invalid label")
 			return
 		}
-		switch parts[1] {
-		case "trip":
-			a.pool.TripBreaker(idx)
-			writeOK(w, map[string]any{"idx": idx, "action": "trip"})
-		case "reset":
-			a.pool.MarkSuccess(idx)
-			writeOK(w, map[string]any{"idx": idx, "action": "reset"})
-		default:
-			writeErr(w, http.StatusNotFound, "unknown action")
-		}
+		a.handleKeyDonor(w, r, label)
 		return
 	}
 
@@ -297,6 +311,86 @@ func (a *AdminHandler) handleKeySub(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, map[string]any{"deleted": label})
 }
 
+// handleKeyDonor handles POST/DELETE of the donor key field on an existing
+// credential file.
+//
+//	POST /admin/api/keys/{label}/donor            — generate a random donor key
+//	POST /admin/api/keys/{label}/donor {"key":"…"} — set a custom donor key
+//	DELETE /admin/api/keys/{label}/donor          — clear the donor key
+func (a *AdminHandler) handleKeyDonor(w http.ResponseWriter, r *http.Request, label string) {
+	switch r.Method {
+	case http.MethodPost:
+		var body struct {
+			Key string `json:"key"`
+		}
+		// Tolerate empty body (→ auto-generate) and malformed JSON (same path).
+		if r.Body != nil {
+			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<14)).Decode(&body); err != nil && err != io.EOF {
+				// Malformed JSON is treated as "no body" → generate. Rationale:
+				// UI POSTs with no body sometimes still sets Content-Type and an
+				// empty stream; we don't want to 400 in that case.
+				body.Key = ""
+			}
+		}
+		donor := strings.TrimSpace(body.Key)
+		if donor == "" {
+			donor = generateDonorKey()
+		}
+		if err := a.writeCredentialDonor(label, donor); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				writeErr(w, http.StatusNotFound, "no such label")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		a.reloader.Reload("admin-set-donor")
+		writeOK(w, map[string]any{"label": label, "donor_key": donor})
+	case http.MethodDelete:
+		if err := a.writeCredentialDonor(label, ""); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				writeErr(w, http.StatusNotFound, "no such label")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		a.reloader.Reload("admin-clear-donor")
+		writeOK(w, map[string]any{"label": label, "donor_key": ""})
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// writeCredentialDonor reads auths/<label>.json, updates the donorKey field,
+// and atomically writes it back. Empty donor clears the field entirely so the
+// JSON on disk doesn't accumulate stale data.
+func (a *AdminHandler) writeCredentialDonor(label, donor string) error {
+	dir := a.reloader.Current().Auth.Dir
+	path := filepath.Join(dir, label+".json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var cred credentialFile
+	if err := json.Unmarshal(raw, &cred); err != nil {
+		return fmt.Errorf("parse credential: %w", err)
+	}
+	cred.DonorKey = donor
+	out, err := json.MarshalIndent(&cred, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal credential: %w", err)
+	}
+	return atomicWrite(path, out)
+}
+
+// generateDonorKey returns a fresh random donor key. Format:
+//
+//	fb_donor_<24 hex chars>   (≈96 bits of entropy)
+func generateDonorKey() string {
+	return DonorKeyPrefix + randomHex(12)
+}
+
 func (a *AdminHandler) handleReload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -322,10 +416,11 @@ type oauthStartResult struct {
 // reloader has been kicked; callers decide how much of Email/Name/Label to
 // disclose to their clients.
 type oauthPollResult struct {
-	Pending bool
-	Label   string
-	Email   string
-	Name    string
+	Pending  bool
+	Label    string
+	Email    string
+	Name     string
+	DonorKey string // issued alongside the credential on successful login
 }
 
 // oauthStart triggers the codebuff device-code flow and returns the login URL
@@ -461,10 +556,16 @@ func (a *AdminHandler) oauthPoll(ctx context.Context, fpID, fpHash, expiresAt st
 		path = filepath.Join(dir, label+".json")
 	}
 
+	// Issue a donor key bound to this new upstream account. The donor key is
+	// the contributor's reward: it grants them /v1/* access pinned to the
+	// account they just donated, and cannot fan out to other pool members.
+	donor := generateDonorKey()
+
 	cred := credentialFile{
 		ID:        u.ID,
 		Email:     u.Email,
 		AuthToken: u.AuthToken,
+		DonorKey:  donor,
 	}
 	if u.Name != "" {
 		cred.Name = &u.Name
@@ -475,9 +576,10 @@ func (a *AdminHandler) oauthPoll(ctx context.Context, fpID, fpHash, expiresAt st
 	}
 	a.reloader.Reload("oauth-login")
 	return &oauthPollResult{
-		Label: label,
-		Email: u.Email,
-		Name:  u.Name,
+		Label:    label,
+		Email:    u.Email,
+		Name:     u.Name,
+		DonorKey: donor,
 	}, nil
 }
 
@@ -527,10 +629,11 @@ func (a *AdminHandler) handleOAuthPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeOK(w, map[string]any{
-		"done":  true,
-		"label": res.Label,
-		"email": res.Email,
-		"name":  res.Name,
+		"done":      true,
+		"label":     res.Label,
+		"email":     res.Email,
+		"name":      res.Name,
+		"donor_key": res.DonorKey,
 	})
 }
 
@@ -565,6 +668,12 @@ func isValidLabel(s string) bool {
 
 // atomicWrite writes data to path via a sibling .tmp + rename. On Windows this
 // is atomic as long as no other process holds the target open.
+//
+// When the target is a single-file Docker bind-mount (e.g. `-v ./config.yaml:
+// /app/config.yaml`), rename(2) fails with EBUSY because the kernel cannot
+// replace the mount-point inode. In that case we fall back to an in-place
+// truncate+write of the target — not strictly atomic, but fsnotify still fires
+// IN_MODIFY so hot-reload keeps working, and there are no concurrent writers.
 func atomicWrite(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
@@ -583,9 +692,19 @@ func atomicWrite(path string, data []byte) error {
 	}
 	if err := os.Rename(tmpName, path); err != nil {
 		os.Remove(tmpName)
+		if isBindMountRenameErr(err) {
+			return os.WriteFile(path, data, 0o644)
+		}
 		return err
 	}
 	return nil
+}
+
+// isBindMountRenameErr reports whether err indicates the target of a rename
+// is a mount point (EBUSY on Linux for single-file Docker bind-mounts, or
+// EXDEV when the temp and target are on different filesystems).
+func isBindMountRenameErr(err error) bool {
+	return errors.Is(err, syscall.EBUSY) || errors.Is(err, syscall.EXDEV)
 }
 
 // redactYAMLKeys replaces real key values in server.api_keys / auth.api_keys

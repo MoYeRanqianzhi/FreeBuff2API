@@ -27,8 +27,7 @@ func main() {
 		log.Fatalf("load keys error: %v", err)
 	}
 	if len(keys) == 0 {
-		log.Fatalf("no FreeBuff API keys found: set auth.api_keys in %q or place credentials JSON files under %q",
-			*configPath, cfg.Auth.Dir)
+		log.Printf("WARNING: no FreeBuff API keys found — /v1/* will 503 until keys are added via admin UI or auths/ directory")
 	}
 
 	pool := NewKeyPoolWithLabels(keys, labels)

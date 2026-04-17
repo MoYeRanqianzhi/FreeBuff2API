@@ -104,25 +104,62 @@ func loadAuthsDir(dir string) (keys, labels []string, err error) {
 	return keys, labels, nil
 }
 
+// DefaultAdminTokenPath is where the admin UI bearer token is read from.
+// Missing file or empty content disables the entire /admin/* surface.
+const DefaultAdminTokenPath = "token.key"
+
 // Reloader is the callback invoked when the config or auths/ tree changes.
 // It re-reads sources, rebuilds the key pool, and propagates new upstream /
 // server settings via onConfig (may be nil).
 type Reloader struct {
 	configPath string
+	tokenPath  string
 	pool       *KeyPool
 
-	mu       sync.RWMutex
-	current  *Config
-	onConfig func(old, next *Config)
+	mu         sync.RWMutex
+	current    *Config
+	adminToken string
+	onConfig   func(old, next *Config)
 }
 
 func NewReloader(configPath string, initial *Config, pool *KeyPool, onConfig func(old, next *Config)) *Reloader {
-	return &Reloader{
+	r := &Reloader{
 		configPath: configPath,
+		tokenPath:  DefaultAdminTokenPath,
 		pool:       pool,
 		current:    initial,
 		onConfig:   onConfig,
 	}
+	r.adminToken = readAdminToken(r.tokenPath)
+	return r
+}
+
+// SetAdminTokenPath overrides the default token.key path (used by tests and
+// non-default deployments).
+func (r *Reloader) SetAdminTokenPath(path string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tokenPath = path
+	r.adminToken = readAdminToken(path)
+}
+
+// AdminTokenPath returns the current token.key path.
+func (r *Reloader) AdminTokenPath() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.tokenPath
+}
+
+// AdminToken returns the live admin token; empty string means admin UI is disabled.
+func (r *Reloader) AdminToken() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.adminToken
+}
+
+// ConfigPath returns the config file path (used by admin endpoints to write it).
+func (r *Reloader) ConfigPath() string {
+	return r.configPath
 }
 
 // Current returns a snapshot of the live config. Caller must not mutate.
@@ -130,6 +167,19 @@ func (r *Reloader) Current() *Config {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.current
+}
+
+// readAdminToken reads+trims the admin token file. Missing / empty / read error
+// all resolve to "" (= admin disabled).
+func readAdminToken(path string) string {
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // Reload re-reads config + auths, applies to the pool, and updates snapshots.
@@ -158,6 +208,7 @@ func (r *Reloader) Reload(reason string) {
 
 	old := r.current
 	r.current = next
+	r.adminToken = readAdminToken(r.tokenPath)
 	if r.onConfig != nil {
 		r.onConfig(old, next)
 	}
@@ -170,6 +221,7 @@ func (r *Reloader) Reload(reason string) {
 type Watcher struct {
 	configPath   string
 	authsDir     string
+	tokenPath    string
 	pollInterval time.Duration
 	reloader     *Reloader
 	debounce     time.Duration
@@ -184,6 +236,7 @@ func NewWatcher(configPath string, reloader *Reloader) *Watcher {
 	return &Watcher{
 		configPath:   configPath,
 		authsDir:     cfg.Auth.Dir,
+		tokenPath:    reloader.AdminTokenPath(),
 		pollInterval: cfg.Auth.WatchInterval,
 		reloader:     reloader,
 		debounce:     200 * time.Millisecond,
@@ -214,6 +267,18 @@ func (w *Watcher) Start(ctx context.Context) error {
 		if err := os.MkdirAll(w.authsDir, 0o755); err == nil {
 			if err := fw.Add(w.authsDir); err != nil {
 				log.Printf("watcher: add auths dir %q: %v (continuing)", w.authsDir, err)
+			}
+		}
+	}
+	if w.tokenPath != "" {
+		tokenDir := filepath.Dir(w.tokenPath)
+		if tokenDir == "" {
+			tokenDir = "."
+		}
+		// Only Add if it isn't already covered by configDir.
+		if w.configPath == "" || !sameFile(tokenDir, filepath.Dir(w.configPath)) {
+			if err := fw.Add(tokenDir); err != nil {
+				log.Printf("watcher: add token dir %q: %v (continuing)", tokenDir, err)
 			}
 		}
 	}
@@ -263,6 +328,10 @@ func (w *Watcher) isRelevant(ev fsnotify.Event) bool {
 	if w.configPath != "" && sameFile(name, w.configPath) {
 		return true
 	}
+	// Match admin token.key by path.
+	if w.tokenPath != "" && sameFile(name, w.tokenPath) {
+		return true
+	}
 	// Match auths/*.json by parent dir + suffix.
 	if w.authsDir != "" {
 		dir := filepath.Dir(name)
@@ -299,6 +368,13 @@ func (w *Watcher) signature() string {
 			fmt.Fprintf(&b, "cfg:%d:%d|", st.Size(), st.ModTime().UnixNano())
 		} else {
 			b.WriteString("cfg:missing|")
+		}
+	}
+	if w.tokenPath != "" {
+		if st, err := os.Stat(w.tokenPath); err == nil {
+			fmt.Fprintf(&b, "tok:%d:%d|", st.Size(), st.ModTime().UnixNano())
+		} else {
+			b.WriteString("tok:missing|")
 		}
 	}
 	if w.authsDir != "" {

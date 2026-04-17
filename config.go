@@ -15,12 +15,39 @@ import (
 // via env variables has a corresponding YAML field. Unspecified fields fall
 // back to sensible defaults (see ApplyDefaults).
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Upstream UpstreamConfig `yaml:"upstream"`
-	Auth     AuthConfig     `yaml:"auth"`
-	Logging  LoggingConfig  `yaml:"logging"`
-	Limits   LimitsConfig   `yaml:"limits"`
+	Server    ServerConfig    `yaml:"server"`
+	Upstream  UpstreamConfig  `yaml:"upstream"`
+	Auth      AuthConfig      `yaml:"auth"`
+	Logging   LoggingConfig   `yaml:"logging"`
+	Limits    LimitsConfig    `yaml:"limits"`
+	Incentive IncentiveConfig `yaml:"incentive"`
 }
+
+// IncentiveConfig controls what reward a crowdfunding OAuth login receives.
+// The two modes are mutually exclusive:
+//
+//   - "donor_key": generate an sk-or-v1-<hex> API key bound to the donated
+//     upstream account (default; preserves v0.10 behaviour).
+//   - "redeem_code": consume one line from the redeem codes file and hand it
+//     back to the contributor. The code is deleted on issuance so it cannot
+//     be reused. When the pool is empty the login still succeeds but no code
+//     is issued (the response simply omits redeem_code + usage).
+type IncentiveConfig struct {
+	// Mode selects the reward type. Valid values: "donor_key", "redeem_code".
+	// Empty string defaults to "donor_key".
+	Mode string `yaml:"mode"`
+	// RedeemCodesFile is the plain-text file holding one code per line. Lines
+	// starting with # and blank lines are ignored. Default: "redeem_codes.txt".
+	RedeemCodesFile string `yaml:"redeem_codes_file"`
+	// RedeemUsage is a one-line instruction shown next to the redeem code on
+	// the success page. Example: "前往 https://example.com/redeem 兑换".
+	RedeemUsage string `yaml:"redeem_usage"`
+}
+
+const (
+	IncentiveModeDonorKey   = "donor_key"
+	IncentiveModeRedeemCode = "redeem_code"
+)
 
 // LimitsConfig holds optional multi-tier RPM caps. Zero means unlimited at
 // that tier. When a limiter rejects, the proxy returns HTTP 429 immediately —
@@ -155,6 +182,12 @@ func (c *Config) applyDefaults() {
 	if c.Logging.Level == "" {
 		c.Logging.Level = "info"
 	}
+	if c.Incentive.Mode == "" {
+		c.Incentive.Mode = IncentiveModeDonorKey
+	}
+	if c.Incentive.RedeemCodesFile == "" {
+		c.Incentive.RedeemCodesFile = "redeem_codes.txt"
+	}
 
 	c.Auth.APIKeys = dedupStrings(c.Auth.APIKeys)
 	c.Server.APIKeys = dedupStrings(c.Server.APIKeys)
@@ -192,6 +225,13 @@ func (c *Config) Validate() error {
 	}
 	if c.Limits.GlobalRPM < 0 || c.Limits.AccountRPM < 0 || c.Limits.ClientRPM < 0 {
 		return fmt.Errorf("limits.*_rpm must be >= 0 (0 = unlimited)")
+	}
+	switch c.Incentive.Mode {
+	case IncentiveModeDonorKey, IncentiveModeRedeemCode:
+		// ok
+	default:
+		return fmt.Errorf("incentive.mode must be %q or %q, got %q",
+			IncentiveModeDonorKey, IncentiveModeRedeemCode, c.Incentive.Mode)
 	}
 	return nil
 }

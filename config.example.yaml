@@ -75,3 +75,19 @@ limits:
   global_rpm: 0     # 全号池总 RPM（所有客户端/账号共享）
   account_rpm: 0    # 每个上游账号独立 RPM
   client_rpm: 0     # 每个 client Bearer token 独立 RPM
+
+# ── 众筹激励 ──
+# /login.html 众筹登录成功后给贡献者发放什么奖励。两种模式二选一。
+#
+#   donor_key（默认）— 生成一把 sk-or-v1-<64hex> 格式的 API key，绑定到刚
+#                       捐赠的上游账号；账号限流/熔断时该 key 同步不可用。
+#
+#   redeem_code     — 从 redeem_codes_file 取一条卡密返还，用过即删，不会
+#                       重复。每条卡密怎么用由 redeem_usage 一句话说明，
+#                       前端直接展示在复制按钮下方。卡密池为空时登录照样
+#                       成功，只是不发奖励；管理面板的「Redeem 剩余」统计
+#                       点开可以批量粘贴补充。
+incentive:
+  mode: donor_key               # donor_key | redeem_code
+  redeem_codes_file: "redeem_codes.txt"
+  redeem_usage: ""              # e.g. "前往 https://example.com/redeem 兑换"

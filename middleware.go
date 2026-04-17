@@ -44,7 +44,8 @@ func logging(next http.Handler) http.Handler {
 }
 
 // authGuard reads the client API key at request time so live config reloads
-// take effect immediately (no process restart required).
+// take effect immediately (no process restart required). Only applied to
+// /v1/*; admin and health paths bypass this guard.
 //
 // Matrix:
 //   - expected list empty AND openrouter disabled → no-op pass-through
@@ -54,6 +55,12 @@ func logging(next http.Handler) http.Handler {
 //   - otherwise                                  → 401
 func authGuard(next http.Handler, reloader *Reloader) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only /v1/* is protected by the downstream api_keys guard.
+		// /admin/*, /health, /status/keys have their own policies.
+		if !strings.HasPrefix(r.URL.Path, "/v1/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		cfg := reloader.Current()
 		expected := cfg.Server.APIKeys
 		orEnabled := cfg.Upstream.OpenRouter.IsEnabled()

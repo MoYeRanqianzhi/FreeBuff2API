@@ -77,7 +77,7 @@ limits:
   client_rpm: 0     # 每个 client Bearer token 独立 RPM
 
 # ── 众筹激励 ──
-# /login.html 众筹登录成功后给贡献者发放什么奖励。两种模式二选一。
+# /login.html 众筹登录成功后给贡献者发放什么奖励。三种模式选一。
 #
 #   donor_key（默认）— 生成一把 sk-or-v1-<64hex> 格式的 API key，绑定到刚
 #                       捐赠的上游账号；账号限流/熔断时该 key 同步不可用。
@@ -87,7 +87,10 @@ limits:
 #                       前端直接展示在复制按钮下方。卡密池为空时登录照样
 #                       成功，只是不发奖励；管理面板的「Redeem 剩余」统计
 #                       点开可以批量粘贴补充。
+#
+#   none            — 不发放任何奖励，仅展示感谢语。适合纯公益性质的
+#                       众筹场景，贡献者只需要知道自己帮到了社区。
 incentive:
-  mode: donor_key               # donor_key | redeem_code
+  mode: donor_key               # donor_key | redeem_code | none
   redeem_codes_file: "redeem_codes.txt"
   redeem_usage: ""              # e.g. "前往 https://example.com/redeem 兑换"

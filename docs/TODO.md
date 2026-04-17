@@ -31,3 +31,4 @@
 - [x] 2026-04-17: **绑定式 donor key（v0.10.0）** —— 众筹成功发放 `sk-or-v1-<64hex>` key（外观与 OR 一致），强绑上游账号；账号限流/熔断时 key 同步不可用，防恶意滥用
 - [x] 2026-04-18: **双激励模式（v0.11.0）** —— `incentive.mode` 可选 `donor_key`（默认）或 `redeem_code`（卡密池一次性发放）；新增 `/admin/api/redeem` 上传/查询 + 面板配置
 - [x] 2026-04-18: **v0.11.0 安全加固** —— 修复三处代码审查发现问题：per-fingerprint 结果缓存防 `/public/oauth/poll` 重复消费；RedeemStore.Pop 写盘失败不再静默；donor 生成全链路 mutex 闭合 TOCTOU
+- [x] 2026-04-18: **无奖励模式（v0.11.1）** —— `incentive.mode` 新增 `none` 选项，登录成功仅展示感谢语，不发放任何激励

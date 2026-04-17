@@ -88,6 +88,10 @@ func (p *PublicHandler) handlePoll(w http.ResponseWriter, r *http.Request) {
 		body["redeem_code"] = res.RedeemCode
 		body["redeem_usage"] = res.RedeemUsage
 	}
+	cfg := p.admin.reloader.Current()
+	if cfg.Incentive.Mode == IncentiveModeNone {
+		body["thank_you"] = true
+	}
 	writeOK(w, body)
 }
 

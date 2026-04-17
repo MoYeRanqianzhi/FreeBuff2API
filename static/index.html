@@ -430,7 +430,7 @@ countUp(healthyV,healthy);
 countUp(brokenV,activeBroken);
 const inc=d.incentive||{};
 const mode=inc.mode||'donor_key';
-incLabelEl.textContent=mode==='redeem_code'?'Redeem 剩余':'Incentive (Donor)';
+incLabelEl.textContent=mode==='redeem_code'?'Redeem 剩余':mode==='none'?'Incentive (无)':'Incentive (Donor)';
 if(mode==='redeem_code'){
   countUp(incV,inc.redeem_remaining|0);
 }else{
@@ -906,7 +906,7 @@ function buildVisualPanels(yamlStr){
   // Incentive
   visualView.appendChild(h('div',{class:'glass cfg-panel enter',style:'animation-delay:300ms'},
     h('div',{class:'panel-title'},h('span',{class:'icon'}),'Incentive'),
-    mkField('incentive.mode','激励模式',{options:['donor_key','redeem_code']}),
+    mkField('incentive.mode','激励模式',{options:['donor_key','redeem_code','none']}),
     mkField('incentive.redeem_codes_file','卡密文件路径',{ph:'redeem_codes.txt'}),
     mkField('incentive.redeem_usage','卡密用法提示（一句话）',{ph:'前往 https://example.com/redeem 兑换'}),
   ));

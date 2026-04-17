@@ -139,10 +139,13 @@ function renderSuccess(pd){
   const donor=pd.donor_key||'';
   const redeem=pd.redeem_code||'';
   const redeemUsage=pd.redeem_usage||'';
+  const thankYou=!!pd.thank_you;
   let html='✓ 登录成功，感谢支持！';
   if(email) html+='<span class="email">'+escapeHtml(email)+'</span>';
   let rewardValue='';
-  if(donor){
+  if(thankYou){
+    html+='<div class="donor-hint" style="margin-top:18px">感谢你的慷慨捐赠！你的账号已成功加入资源池，为社区贡献了一份力量。</div>';
+  }else if(donor){
     rewardValue=donor;
     html+=
       '<div class="donor-panel">'

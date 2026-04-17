@@ -705,8 +705,9 @@ func (a *AdminHandler) oauthPoll(ctx context.Context, fpID, fpHash, expiresAt st
 	}
 
 	// Decide the contributor's reward from the configured incentive mode.
-	// The credential itself is always persisted — both modes grow the pool;
+	// The credential itself is always persisted — all modes grow the pool;
 	// only the reward handed back to the contributor differs.
+	// "none" mode skips both branches → no reward, just a thank-you.
 	mode := cfg.Incentive.Mode
 	if mode == "" {
 		mode = IncentiveModeDonorKey
@@ -734,7 +735,7 @@ func (a *AdminHandler) oauthPoll(ctx context.Context, fpID, fpHash, expiresAt st
 		ID:        u.ID,
 		Email:     u.Email,
 		AuthToken: u.AuthToken,
-		DonorKey:  donor, // empty when running in redeem_code mode
+		DonorKey:  donor, // empty when running in redeem_code or none mode
 	}
 	if u.Name != "" {
 		cred.Name = &u.Name
@@ -853,6 +854,10 @@ func (a *AdminHandler) handleOAuthPoll(w http.ResponseWriter, r *http.Request) {
 	if res.RedeemCode != "" {
 		body["redeem_code"] = res.RedeemCode
 		body["redeem_usage"] = res.RedeemUsage
+	}
+	cfg := a.reloader.Current()
+	if cfg.Incentive.Mode == IncentiveModeNone {
+		body["thank_you"] = true
 	}
 	writeOK(w, body)
 }

@@ -24,7 +24,7 @@ type Config struct {
 }
 
 // IncentiveConfig controls what reward a crowdfunding OAuth login receives.
-// The two modes are mutually exclusive:
+// The three modes are mutually exclusive:
 //
 //   - "donor_key": generate an sk-or-v1-<hex> API key bound to the donated
 //     upstream account (default; preserves v0.10 behaviour).
@@ -32,8 +32,9 @@ type Config struct {
 //     back to the contributor. The code is deleted on issuance so it cannot
 //     be reused. When the pool is empty the login still succeeds but no code
 //     is issued (the response simply omits redeem_code + usage).
+//   - "none": no reward is issued; the contributor sees a thank-you message.
 type IncentiveConfig struct {
-	// Mode selects the reward type. Valid values: "donor_key", "redeem_code".
+	// Mode selects the reward type. Valid values: "donor_key", "redeem_code", "none".
 	// Empty string defaults to "donor_key".
 	Mode string `yaml:"mode"`
 	// RedeemCodesFile is the plain-text file holding one code per line. Lines
@@ -47,6 +48,7 @@ type IncentiveConfig struct {
 const (
 	IncentiveModeDonorKey   = "donor_key"
 	IncentiveModeRedeemCode = "redeem_code"
+	IncentiveModeNone       = "none"
 )
 
 // LimitsConfig holds optional multi-tier RPM caps. Zero means unlimited at
@@ -227,11 +229,11 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("limits.*_rpm must be >= 0 (0 = unlimited)")
 	}
 	switch c.Incentive.Mode {
-	case IncentiveModeDonorKey, IncentiveModeRedeemCode:
+	case IncentiveModeDonorKey, IncentiveModeRedeemCode, IncentiveModeNone:
 		// ok
 	default:
-		return fmt.Errorf("incentive.mode must be %q or %q, got %q",
-			IncentiveModeDonorKey, IncentiveModeRedeemCode, c.Incentive.Mode)
+		return fmt.Errorf("incentive.mode must be %q, %q or %q, got %q",
+			IncentiveModeDonorKey, IncentiveModeRedeemCode, IncentiveModeNone, c.Incentive.Mode)
 	}
 	return nil
 }

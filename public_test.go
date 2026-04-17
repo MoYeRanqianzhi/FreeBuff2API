@@ -315,6 +315,58 @@ func TestPublicPollRedeemEmptyPool(t *testing.T) {
 	}
 }
 
+// TestPublicPollNoneMode verifies that incentive mode "none" returns a
+// thank_you flag and no donor_key / redeem_code.
+func TestPublicPollNoneMode(t *testing.T) {
+	codebuff := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/auth/cli/status") {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, `{"user":{"id":"u1","email":"anna@example.com","authToken":"cb_live_anna"}}`)
+	}))
+	defer codebuff.Close()
+
+	tmp := t.TempDir()
+	cfg := &Config{}
+	cfg.Upstream.BaseURL = codebuff.URL
+	cfg.Upstream.CostMode = "free"
+	disabled := false
+	cfg.Upstream.OpenRouter.Enabled = &disabled
+	cfg.Auth.Dir = tmp
+	cfg.Incentive.Mode = IncentiveModeNone
+	cfg.applyDefaults()
+	pool := NewKeyPoolWithLabels(nil, nil)
+	reloader := NewReloader(filepath.Join(tmp, "config.yaml"), cfg, pool, nil)
+	admin := NewAdminHandler(reloader, pool, nil)
+	ph := NewPublicHandler(admin)
+
+	req := httptest.NewRequest(http.MethodGet, "/public/oauth/poll?fp=fp_pub_none1&fph=h&exp=X", nil)
+	rec := httptest.NewRecorder()
+	ph.handlePoll(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"done":true`) {
+		t.Errorf("login should succeed: %s", body)
+	}
+	if !strings.Contains(body, `"thank_you":true`) {
+		t.Errorf("none mode should return thank_you: %s", body)
+	}
+	if strings.Contains(body, `"donor_key"`) {
+		t.Errorf("donor_key must not appear in none mode: %s", body)
+	}
+	if strings.Contains(body, `"redeem_code"`) {
+		t.Errorf("redeem_code must not appear in none mode: %s", body)
+	}
+	// Credential still banked.
+	matches, _ := filepath.Glob(filepath.Join(tmp, "*.json"))
+	if len(matches) == 0 {
+		t.Errorf("credential not banked even though no reward was issued")
+	}
+}
+
 // TestPublicPollDedupesRepeatedPolls guards against a critical regression:
 // without per-fingerprint caching, a browser that keeps polling after success
 // (or an attacker replaying fp/fph/exp) would mint a fresh donor key, consume

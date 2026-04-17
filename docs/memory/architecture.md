@@ -26,7 +26,6 @@ OpenRouter -> LLM (Claude/GPT/Gemini/GLM...)
 | `config.go` | 环境变量配置加载 |
 | `proxy.go` | 核心反代：请求改写 + SSE 流式透传 |
 | `middleware.go` | CORS, 日志, 认证, panic 恢复 |
-| `models.go` | `/v1/models` 模型列表端点 |
 | `uid/uid.go` | UUID v4 生成（零依赖） |
 
 ## 关键设计

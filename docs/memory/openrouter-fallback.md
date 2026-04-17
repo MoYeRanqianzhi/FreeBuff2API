@@ -47,5 +47,5 @@ upstream:
 
 ## 已知限制
 
-- `/v1/models` 暂未改动，仍返回 FreeBuff 模型白名单。后续可考虑按请求的 Bearer 动态透传 OpenRouter `/v1/models`。
+- `/v1/models` 已移除 —— 与上游 OpenRouter 一致（OpenRouter 本身就不返回静态模型列表，静态白名单在新模型发布时会过期）。`model` 字段由客户端决定，请求直接透传。
 - 上游 401/403/429 不触发兜底 —— 这是语义选择（那是上游 key 的问题，不是 FreeBuff 整体故障）。若未来需要更激进兜底，在 proxy.go 里把状态码列表加宽即可。

@@ -3,7 +3,6 @@
 ## P0（影响可用性）
 - [ ] **runId 池化**: 预热 runId 池，消除每请求 ~700ms 开销
 - [ ] 支持客户端通过 header 覆盖 `cost_mode`（如 `X-Freebuff-Cost-Mode: free`）
-- [ ] 动态模型列表（部分 Haiku 等型号 404）
 
 ## P1
 - [ ] 添加请求重试逻辑（408/429/5xx）—— 失败时切到下一 key 重试
@@ -27,3 +26,4 @@
 - [x] 2026-04-17: **YAML 配置（v0.5.0）** —— config.yaml + fsnotify 秒级热加载
 - [x] 2026-04-17: **移除 env 兼容（v0.5.1）** —— YAML 成为唯一配置来源
 - [x] 2026-04-17: **下游多 key + OpenRouter 兜底（v0.6.0）** —— `server.api_keys` 列表 + `upstream.openrouter` 段；sk-or-* 自动识别与 FreeBuff 失败兜底
+- [x] 2026-04-17: **移除 /v1/models 端点（v0.6.1）** —— 静态白名单会过期，与 OpenRouter 一致让客户端自己决定 model

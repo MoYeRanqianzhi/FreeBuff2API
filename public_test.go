@@ -56,8 +56,31 @@ func TestPublicStartResponseIsSanitized(t *testing.T) {
 	}))
 	defer codebuff.Close()
 
+	testStartResponse(t, codebuff.URL, "2026-04-17T12:00:00Z")
+}
+
+// TestPublicStartAcceptsNumericExpiresAt guards against a regression where the
+// ExpiresAt field was decoded as `string`, which broke when codebuff switched
+// to a numeric unix-ms timestamp and left users seeing "响应非 JSON" / 502.
+func TestPublicStartAcceptsNumericExpiresAt(t *testing.T) {
+	codebuff := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auth/cli/code" {
+			http.NotFound(w, r)
+			return
+		}
+		// Real codebuff now returns a number here, not an ISO string.
+		io.WriteString(w, `{"loginUrl":"https://codebuff.com/cli-login?code=ABC","fingerprintHash":"hash123","expiresAt":1776406544284}`)
+	}))
+	defer codebuff.Close()
+
+	testStartResponse(t, codebuff.URL, "1776406544284")
+}
+
+func testStartResponse(t *testing.T, codebuffURL, wantExpiresAt string) {
+	t.Helper()
+
 	tmp := t.TempDir()
-	ph := setupPublicHandler(t, codebuff.URL, tmp)
+	ph := setupPublicHandler(t, codebuffURL, tmp)
 
 	req := httptest.NewRequest(http.MethodPost, "/public/oauth/start", nil)
 	rec := httptest.NewRecorder()
@@ -96,6 +119,27 @@ func TestPublicStartResponseIsSanitized(t *testing.T) {
 	// fingerprint_id must use the public prefix so ops can separate from admin logins.
 	if fpID, _ := env.Data["fingerprint_id"].(string); !strings.HasPrefix(fpID, "fp_pub_") {
 		t.Errorf("fingerprint_id should start with fp_pub_, got %q", fpID)
+	}
+	if got, _ := env.Data["expires_at"].(string); got != wantExpiresAt {
+		t.Errorf("expires_at = %q; want %q", got, wantExpiresAt)
+	}
+}
+
+func TestRawJSONToString(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{`"hello"`, "hello"},
+		{`"2026-04-17T12:00:00Z"`, "2026-04-17T12:00:00Z"},
+		{`1776406544284`, "1776406544284"},
+		{`  1776406544284  `, "1776406544284"},
+		{`null`, ""},
+		{``, ""},
+		{`""`, ""},
+	}
+	for _, c := range cases {
+		got := rawJSONToString([]byte(c.in))
+		if got != c.want {
+			t.Errorf("rawJSONToString(%q) = %q; want %q", c.in, got, c.want)
+		}
 	}
 }
 

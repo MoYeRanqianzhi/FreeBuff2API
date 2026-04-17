@@ -352,20 +352,44 @@ func (a *AdminHandler) oauthStart(ctx context.Context, fpPrefix string) (*oauthS
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("codebuff %d: %s", resp.StatusCode, string(raw))
 	}
+	// expiresAt has drifted over the life of the codebuff API: originally an
+	// ISO 8601 string, now a unix-ms integer. Accept either by decoding it as
+	// raw JSON and stringifying. Everything downstream treats it as an opaque
+	// handle that is echoed back in the /status poll query.
 	var codeResp struct {
-		LoginURL        string `json:"loginUrl"`
-		FingerprintHash string `json:"fingerprintHash"`
-		ExpiresAt       string `json:"expiresAt"`
+		LoginURL        string          `json:"loginUrl"`
+		FingerprintHash string          `json:"fingerprintHash"`
+		ExpiresAt       json.RawMessage `json:"expiresAt"`
 	}
 	if err := json.Unmarshal(raw, &codeResp); err != nil {
-		return nil, fmt.Errorf("bad codebuff response")
+		return nil, fmt.Errorf("bad codebuff response: %w", err)
+	}
+	if codeResp.LoginURL == "" {
+		return nil, fmt.Errorf("bad codebuff response: missing loginUrl")
 	}
 	return &oauthStartResult{
 		LoginURL:        codeResp.LoginURL,
 		FingerprintID:   fpID,
 		FingerprintHash: codeResp.FingerprintHash,
-		ExpiresAt:       codeResp.ExpiresAt,
+		ExpiresAt:       rawJSONToString(codeResp.ExpiresAt),
 	}, nil
+}
+
+// rawJSONToString coerces a JSON scalar (string or number) to its string form
+// so downstream code can treat it as an opaque token. Quoted strings are
+// unquoted; numbers and other literals are returned as their raw textual form.
+func rawJSONToString(raw json.RawMessage) string {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" {
+		return ""
+	}
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		var out string
+		if err := json.Unmarshal(raw, &out); err == nil {
+			return out
+		}
+	}
+	return s
 }
 
 // oauthPoll checks the codebuff CLI status endpoint and, on success, writes

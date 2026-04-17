@@ -62,3 +62,16 @@ auth:
 logging:
   # 当前仅控制启动日志详细度；后续会扩展到请求日志
   level: info
+
+# ── 可选 RPM 限速 ──
+# 三层可选的每分钟请求数上限。0 = 不限（默认）。
+# 策略：任一层拿不到令牌立即返回 429，不排队。
+#
+# account_rpm 同时是「负载均衡器」——当某个上游账号本分钟配额用完时，round-robin
+# 会自动跳过它并选下一个，只有所有上游账号都达限时客户端才会收到 429。
+#
+# 客户端 Bearer token（server.api_keys 里的那些）独立计数 client_rpm，互不影响。
+limits:
+  global_rpm: 0     # 全号池总 RPM（所有客户端/账号共享）
+  account_rpm: 0    # 每个上游账号独立 RPM
+  client_rpm: 0     # 每个 client Bearer token 独立 RPM

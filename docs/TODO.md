@@ -5,13 +5,11 @@
 - [ ] 支持客户端通过 header 覆盖 `cost_mode`（如 `X-Freebuff-Cost-Mode: free`）
 
 ## P1
-- [ ] 添加请求重试逻辑（408/429/5xx）—— 失败时切到下一 key 重试
-- [ ] 单请求内跨 key 自动重试（当前熔断只影响后续请求）
 - [ ] Prometheus metrics 端点（多账号维度）
-- [ ] Rate limiting
 - [ ] 启动时后端连通性自检
 - [ ] 多账号加权 / least-loaded 策略
 - [ ] HTTP 管理端点（参考 CLIProxyAPI `/v0/management`）
+- [ ] 管理 UI 可视化 limits 面板（v0.8.1）
 
 ## 已完成
 - [x] 2026-04-16: 项目初始化 + Go 反代核心实现
@@ -28,3 +26,4 @@
 - [x] 2026-04-17: **下游多 key + OpenRouter 兜底（v0.6.0）** —— `server.api_keys` 列表 + `upstream.openrouter` 段；sk-or-* 自动识别与 FreeBuff 失败兜底
 - [x] 2026-04-17: **移除 /v1/models 端点（v0.6.1）** —— 静态白名单会过期，与 OpenRouter 一致让客户端自己决定 model
 - [x] 2026-04-17: **Admin UI + REST API（v0.7.0）** —— token.key 鉴权，单文件 glassmorphism 前端（淡蓝青绿渐变），可热改 config + 增删 key + 手动熔断
+- [x] 2026-04-17: **错误过滤 + 多账号重试 + RPM 限速（v0.8.0）** —— 上游 4xx/5xx 脱敏为中文通用消息；单请求最多重试 3 个账号；三层令牌桶（global/account/client），reject-only

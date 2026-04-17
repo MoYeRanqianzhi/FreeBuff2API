@@ -31,6 +31,7 @@
 - 2026-04-17: **下游多 key + OpenRouter 兜底（v0.6.0）** —— `server.api_key` (string) 升级为 `server.api_keys` ([]string)，**不保留**单值兼容；新增 `upstream.openrouter` 段（默认 enabled=true, base_url=https://openrouter.ai/api/v1）；客户端 Bearer 若匹配 `^sk-or-[a-zA-Z0-9_\-]{20,}$` 且不在 `api_keys` → 直接转发 OpenRouter；若在列表中且本身是 sk-or- 格式 → FreeBuff 全部失败时兜底 OpenRouter。详见 `memory/openrouter-fallback.md`
 - 2026-04-17: **移除 /v1/models 端点（v0.6.1）** —— 静态白名单会过期，OpenRouter 本身也不暴露稳定目录；model 字段交由客户端决定并直通上游
 - 2026-04-17: **Admin UI + REST（v0.7.0）** —— 独立 `token.key` 文件承载 admin token（缺失即 `/admin/*` 全 404），与 `server.api_keys` 语义分离；REST 端点 `/admin/api/{status,config,keys,reload}` 全部热加载文件而非进程内修改（fsnotify 自然 reload）；单文件 glassmorphism 前端（淡蓝青绿渐变），零依赖 + `//go:embed`。详见 `memory/admin-ui.md`
+- 2026-04-17: **错误过滤 + 多账号重试 + RPM 限速（v0.8.0）** —— 三件事合并发布：(1) 上游 4xx/5xx 错误体统一脱敏，不再泄漏 "account suspended" 等细节；空池/繁忙均中文提示；(2) 单次请求内最多重试 3 个账号（`min(3, healthy)`），覆盖 401/402/403/429/5xx/网络错误，429 不触发熔断；(3) 可选 `limits.{global,account,client}_rpm` 三层令牌桶，reject-only（不排队），`account_rpm` 天然充当负载均衡器（round-robin 跳过达限账号），保持零外部依赖
 
 ## 实测性能（v0.1.0）
 - TTFT: 2.2 ~ 3.2s（含 runId 注册 ~700ms）

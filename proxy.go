@@ -56,6 +56,12 @@ func NewProxyHandler(reloader *Reloader, pool *KeyPool) *ProxyHandler {
 	}
 }
 
+// limits returns the active LimiterSet or nil if none is attached (in which
+// case all the Allow calls short-circuit to true — unlimited).
+func (p *ProxyHandler) limits() *LimiterSet {
+	return p.reloader.Limiters()
+}
+
 func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":{"message":"Method not allowed","type":"invalid_request_error"}}`, http.StatusMethodNotAllowed)
@@ -94,6 +100,21 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	downstreamToken, _ := r.Context().Value(ctxKeyDownstreamToken).(string)
 	canFallback := cfg.Upstream.OpenRouter.IsEnabled() && IsOpenRouterKey(downstreamToken)
 
+	// RPM limit checks (reject-only; no queueing). client → global. Account is
+	// handled inside the retry loop as a filter so its rejection falls over to
+	// the next healthy account automatically.
+	limits := p.limits()
+	if !limits.ClientAllow(downstreamToken) {
+		writeSanitized(w, http.StatusTooManyRequests,
+			`{"error":{"message":"请求过于频繁，请稍后重试","type":"rate_limited"}}`)
+		return
+	}
+	if !limits.GlobalAllow() {
+		writeSanitized(w, http.StatusTooManyRequests,
+			`{"error":{"message":"服务繁忙，请稍后重试","type":"rate_limited"}}`)
+		return
+	}
+
 	isStream := false
 	if s, ok := req["stream"]; ok {
 		if b, ok := s.(bool); ok {
@@ -116,10 +137,20 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	tried := make(map[int]struct{}, maxRetries)
 	lastStatus := 0
 
+	accountRateLimited := false
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		upstreamKey, keyIdx, ok := p.keys.NextAvailable(func(_ string, idx int) bool {
-			_, seen := tried[idx]
-			return !seen
+		upstreamKey, keyIdx, ok := p.keys.NextAvailable(func(key string, idx int) bool {
+			if _, seen := tried[idx]; seen {
+				return false
+			}
+			// Skip accounts whose per-key bucket is empty — they'll become
+			// available again after refill. If that's the only reason we're
+			// skipping, remember so the exhaustion branch can tell the user.
+			if !limits.AccountAllow(key) {
+				accountRateLimited = true
+				return false
+			}
+			return true
 		})
 		if !ok {
 			break
@@ -209,8 +240,13 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pool was empty from the start?
+	// Pool was empty OR every account was rate-limited from the start.
 	if len(tried) == 0 {
+		if accountRateLimited {
+			writeSanitized(w, http.StatusTooManyRequests,
+				`{"error":{"message":"所有上游账号繁忙，请稍后重试","type":"rate_limited"}}`)
+			return
+		}
 		writeSanitized(w, http.StatusServiceUnavailable,
 			`{"error":{"message":"号池无可用账号，请联系管理员添加上游账号","type":"pool_empty"}}`)
 		return

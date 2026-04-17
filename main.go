@@ -33,7 +33,10 @@ func main() {
 	pool := NewKeyPoolWithLabels(keys, labels)
 	pool.SetBreakerTuning(cfg.Auth.Breaker.Threshold, cfg.Auth.Breaker.Cooldown)
 
+	limiters := NewLimiterSet(cfg.Limits)
+
 	reloader := NewReloader(*configPath, cfg, pool, nil)
+	reloader.SetLimiters(limiters)
 	proxy := NewProxyHandler(reloader, pool)
 
 	admin := NewAdminHandler(reloader, pool)
@@ -91,6 +94,8 @@ func main() {
 		} else {
 			log.Print("OpenRouter fallback: disabled")
 		}
+		log.Printf("RPM limits: global=%s account=%s client=%s",
+			rpmLabel(cfg.Limits.GlobalRPM), rpmLabel(cfg.Limits.AccountRPM), rpmLabel(cfg.Limits.ClientRPM))
 		if reloader.AdminToken() != "" {
 			log.Printf("Admin UI: enabled at /admin/ (token.key=%s)", reloader.AdminTokenPath())
 		} else {
@@ -109,6 +114,13 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	srv.Shutdown(shutdownCtx)
+}
+
+func rpmLabel(rpm int) string {
+	if rpm <= 0 {
+		return "unlimited"
+	}
+	return fmt.Sprintf("%d/min", rpm)
 }
 
 func writeKeyStatus(w http.ResponseWriter, pool *KeyPool) {

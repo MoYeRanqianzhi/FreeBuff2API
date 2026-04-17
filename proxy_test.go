@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -163,6 +164,49 @@ func TestEmptyPoolMessage(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "号池无可用账号") {
 		t.Fatalf("want 号池无可用账号, got %s", rec.Body.String())
+	}
+}
+
+func TestClientRPMRejects(t *testing.T) {
+	srv, _ := mockUpstream(t, func(_ int) int { return http.StatusOK })
+	defer srv.Close()
+
+	// Build proxy with client_rpm=2 and attach a LimiterSet.
+	cfg := &Config{}
+	cfg.Upstream.BaseURL = srv.URL
+	cfg.Upstream.CostMode = "free"
+	disabled := false
+	cfg.Upstream.OpenRouter.Enabled = &disabled
+	cfg.Limits.ClientRPM = 2
+	cfg.applyDefaults()
+	pool := NewKeyPoolWithLabels([]string{"k1", "k2"}, []string{"t", "t"})
+	reloader := NewReloader("/dev/null", cfg, pool, nil)
+	reloader.SetLimiters(NewLimiterSet(cfg.Limits))
+	p := NewProxyHandler(reloader, pool)
+
+	fire := func() *httptest.ResponseRecorder {
+		body := `{"model":"m","messages":[{"role":"user","content":"hi"}]}`
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		// Simulate the ctx stashed by authGuard
+		req = req.WithContext(context.WithValue(req.Context(), ctxKeyDownstreamToken, "client-A"))
+		rec := httptest.NewRecorder()
+		p.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if r := fire(); r.Code != http.StatusOK {
+		t.Fatalf("1st want 200, got %d", r.Code)
+	}
+	if r := fire(); r.Code != http.StatusOK {
+		t.Fatalf("2nd want 200, got %d", r.Code)
+	}
+	r := fire()
+	if r.Code != http.StatusTooManyRequests {
+		t.Fatalf("3rd want 429, got %d: %s", r.Code, r.Body.String())
+	}
+	if !strings.Contains(r.Body.String(), "请求过于频繁") {
+		t.Fatalf("want 请求过于频繁, got %s", r.Body.String())
 	}
 }
 

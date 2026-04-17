@@ -19,6 +19,22 @@ type Config struct {
 	Upstream UpstreamConfig `yaml:"upstream"`
 	Auth     AuthConfig     `yaml:"auth"`
 	Logging  LoggingConfig  `yaml:"logging"`
+	Limits   LimitsConfig   `yaml:"limits"`
+}
+
+// LimitsConfig holds optional multi-tier RPM caps. Zero means unlimited at
+// that tier. When a limiter rejects, the proxy returns HTTP 429 immediately —
+// no internal queueing.
+type LimitsConfig struct {
+	// GlobalRPM caps total requests/minute across the entire proxy. 0 = unlimited.
+	GlobalRPM int `yaml:"global_rpm"`
+	// AccountRPM caps requests/minute against each single upstream key.
+	// 0 = unlimited. When a per-account bucket is empty, the proxy skips that
+	// account in round-robin (automatic load balancing).
+	AccountRPM int `yaml:"account_rpm"`
+	// ClientRPM caps requests/minute from each single client Bearer token.
+	// 0 = unlimited.
+	ClientRPM int `yaml:"client_rpm"`
 }
 
 type ServerConfig struct {
@@ -173,6 +189,9 @@ func (c *Config) Validate() error {
 		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
 			return fmt.Errorf("upstream.openrouter.base_url must start with http:// or https://, got %q", u)
 		}
+	}
+	if c.Limits.GlobalRPM < 0 || c.Limits.AccountRPM < 0 || c.Limits.ClientRPM < 0 {
+		return fmt.Errorf("limits.*_rpm must be >= 0 (0 = unlimited)")
 	}
 	return nil
 }

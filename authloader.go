@@ -115,6 +115,7 @@ type Reloader struct {
 	configPath string
 	tokenPath  string
 	pool       *KeyPool
+	limiters   *LimiterSet
 
 	mu         sync.RWMutex
 	current    *Config
@@ -132,6 +133,21 @@ func NewReloader(configPath string, initial *Config, pool *KeyPool, onConfig fun
 	}
 	r.adminToken = readAdminToken(r.tokenPath)
 	return r
+}
+
+// SetLimiters wires a LimiterSet into the reloader so subsequent Reload() calls
+// can push new RPM caps and prune removed keys.
+func (r *Reloader) SetLimiters(ls *LimiterSet) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.limiters = ls
+}
+
+// Limiters returns the current limiter set (may be nil if never set).
+func (r *Reloader) Limiters() *LimiterSet {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.limiters
 }
 
 // SetAdminTokenPath overrides the default token.key path (used by tests and
@@ -204,6 +220,12 @@ func (r *Reloader) Reload(reason string) {
 		added, removed, kept := r.pool.Reload(keys, labels)
 		log.Printf("reload (%s): keys added=%d removed=%d kept=%d total=%d healthy=%d",
 			reason, added, removed, kept, r.pool.Size(), r.pool.HealthySize())
+	}
+
+	// Push RPM changes and prune removed keys' buckets. keys may be nil if
+	// LoadKeySources failed; in that case we skip pruning but still apply rpm.
+	if r.limiters != nil {
+		r.limiters.Reload(next.Limits, keys, next.Server.APIKeys)
 	}
 
 	old := r.current

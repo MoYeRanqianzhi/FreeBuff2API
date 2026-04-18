@@ -42,7 +42,7 @@ func buildTestProxy(t *testing.T, upstreamURL string, keys []string) *ProxyHandl
 	t.Helper()
 	cfg := &Config{}
 	cfg.Upstream.BaseURL = upstreamURL
-	cfg.Upstream.CostMode = "free"
+	cfg.Upstream.CostMode = "normal"
 	cfg.Upstream.DefaultModel = "anthropic/claude-sonnet-4"
 	disabled := false
 	cfg.Upstream.OpenRouter.Enabled = &disabled
@@ -144,7 +144,7 @@ func TestEmptyPoolMessage(t *testing.T) {
 	// No keys, no fallback → should hit the "号池无可用账号" branch.
 	cfg := &Config{}
 	cfg.Upstream.BaseURL = "http://unused"
-	cfg.Upstream.CostMode = "free"
+	cfg.Upstream.CostMode = "normal"
 	disabled := false
 	cfg.Upstream.OpenRouter.Enabled = &disabled
 	cfg.applyDefaults()
@@ -174,7 +174,7 @@ func TestClientRPMRejects(t *testing.T) {
 	// Build proxy with client_rpm=2 and attach a LimiterSet.
 	cfg := &Config{}
 	cfg.Upstream.BaseURL = srv.URL
-	cfg.Upstream.CostMode = "free"
+	cfg.Upstream.CostMode = "normal"
 	disabled := false
 	cfg.Upstream.OpenRouter.Enabled = &disabled
 	cfg.Limits.ClientRPM = 2
@@ -264,7 +264,7 @@ func TestProxyPinnedKeyAccountRateLimited(t *testing.T) {
 
 	cfg := &Config{}
 	cfg.Upstream.BaseURL = srv.URL
-	cfg.Upstream.CostMode = "free"
+	cfg.Upstream.CostMode = "normal"
 	cfg.Upstream.DefaultModel = "anthropic/claude-sonnet-4"
 	disabled := false
 	cfg.Upstream.OpenRouter.Enabled = &disabled

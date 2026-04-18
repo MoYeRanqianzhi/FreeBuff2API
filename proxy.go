@@ -112,6 +112,23 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req["model"] = cfg.Upstream.DefaultModel
 	}
 
+	model, _ := req["model"].(string)
+
+	// Free-mode guard: resolve model → (agentId, canonicalModel). Unknown
+	// models are rejected immediately so codebuff never sees an invalid combo.
+	agentID := "base2"
+	isFreeMode := cfg.Upstream.CostMode == "free"
+	if isFreeMode {
+		freeAgent, freeModel, allowed := resolveFreeModeAgent(model)
+		if !allowed {
+			writeSanitized(w, http.StatusForbidden,
+				`{"error":{"message":"该模型不支持免费模式，请使用 google/gemini-3.1-pro-preview、minimax/minimax-m2.7 或 z-ai/glm-5.1","type":"free_mode_model_not_allowed"}}`)
+			return
+		}
+		agentID = freeAgent
+		req["model"] = freeModel
+	}
+
 	// downstreamToken is the client-presented Bearer; used to tentatively fall back to
 	// OpenRouter if FreeBuff fails AND the token itself is an sk-or- key.
 	downstreamToken, _ := r.Context().Value(ctxKeyDownstreamToken).(string)
@@ -184,7 +201,7 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tried[keyIdx] = struct{}{}
 		log.Printf("→ upstream key[%d]=%s (attempt %d/%d)", keyIdx, fingerprint(upstreamKey), attempt+1, maxRetries)
 
-		runID, err := p.startAgentRun(r.Context(), cfg.Upstream.BaseURL, upstreamKey)
+		runID, err := p.startAgentRun(r.Context(), cfg.Upstream.BaseURL, upstreamKey, agentID)
 		if err != nil {
 			p.keys.MarkFailure(keyIdx)
 			// Refund the account token we took via AccountAllow — this attempt
@@ -388,7 +405,17 @@ func (p *ProxyHandler) servePinned(w http.ResponseWriter, r *http.Request, req m
 
 	log.Printf("→ pinned upstream key[%d]=%s (donor-key request)", idx, fingerprint(upstreamKey))
 
-	runID, err := p.startAgentRun(r.Context(), cfg.Upstream.BaseURL, upstreamKey)
+	// Resolve agentId for free mode; pinned path uses the same mapping.
+	pinnedAgentID := "base2"
+	if cfg.Upstream.CostMode == "free" {
+		model, _ := req["model"].(string)
+		if freeAgent, freeModel, ok := resolveFreeModeAgent(model); ok {
+			pinnedAgentID = freeAgent
+			req["model"] = freeModel
+		}
+	}
+
+	runID, err := p.startAgentRun(r.Context(), cfg.Upstream.BaseURL, upstreamKey, pinnedAgentID)
 	if err != nil {
 		p.keys.MarkFailure(idx)
 		limits.AccountRefund(upstreamKey)
@@ -467,8 +494,8 @@ func (p *ProxyHandler) servePinned(w http.ResponseWriter, r *http.Request, req m
 	}
 }
 
-func (p *ProxyHandler) startAgentRun(ctx context.Context, baseURL, apiKey string) (string, error) {
-	body := []byte(`{"action":"START","agentId":"base2","ancestorRunIds":[]}`)
+func (p *ProxyHandler) startAgentRun(ctx context.Context, baseURL, apiKey, agentID string) (string, error) {
+	body := []byte(`{"action":"START","agentId":"` + agentID + `","ancestorRunIds":[]}`)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/v1/agent-runs", bytes.NewReader(body))
 	if err != nil {
 		return "", err

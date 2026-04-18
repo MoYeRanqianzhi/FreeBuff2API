@@ -41,7 +41,7 @@ func setupPublicHandlerWithRedeem(t *testing.T, codebuffURL, authsDir, redeemPat
 	t.Helper()
 	cfg := &Config{}
 	cfg.Upstream.BaseURL = codebuffURL
-	cfg.Upstream.CostMode = "free"
+	cfg.Upstream.CostMode = "normal"
 	disabled := false
 	cfg.Upstream.OpenRouter.Enabled = &disabled
 	cfg.Auth.Dir = authsDir
@@ -330,7 +330,7 @@ func TestPublicPollNoneMode(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &Config{}
 	cfg.Upstream.BaseURL = codebuff.URL
-	cfg.Upstream.CostMode = "free"
+	cfg.Upstream.CostMode = "normal"
 	disabled := false
 	cfg.Upstream.OpenRouter.Enabled = &disabled
 	cfg.Auth.Dir = tmp

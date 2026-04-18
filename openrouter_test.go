@@ -38,7 +38,7 @@ func TestForceOpenRouterPath(t *testing.T) {
 	cfg := &Config{
 		Upstream: UpstreamConfig{
 			BaseURL:      "http://dead.localhost:1",
-			CostMode:     "free",
+			CostMode:     "normal",
 			DefaultModel: "x",
 			OpenRouter:   OpenRouterConfig{BaseURL: orSrv.URL},
 		},
@@ -90,7 +90,7 @@ func TestFallbackOnFreeBuffFailure(t *testing.T) {
 	cfg := &Config{
 		Upstream: UpstreamConfig{
 			BaseURL:      fbSrv.URL,
-			CostMode:     "free",
+			CostMode:     "normal",
 			DefaultModel: "x",
 			OpenRouter:   OpenRouterConfig{BaseURL: orSrv.URL},
 		},
@@ -133,7 +133,7 @@ func TestFallbackSkipsWhenTokenNotSkOr(t *testing.T) {
 	cfg := &Config{
 		Upstream: UpstreamConfig{
 			BaseURL:      fbSrv.URL,
-			CostMode:     "free",
+			CostMode:     "normal",
 			DefaultModel: "x",
 			OpenRouter:   OpenRouterConfig{BaseURL: orSrv.URL},
 		},

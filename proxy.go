@@ -49,27 +49,30 @@ type ProxyHandler struct {
 	reloader *Reloader
 	client   *http.Client
 	keys     *KeyPool
+	sessions *sessionManager
 }
 
 func NewProxyHandler(reloader *Reloader, pool *KeyPool) *ProxyHandler {
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 10 * time.Minute,
+			IdleConnTimeout:       120 * time.Second,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   20,
+			ForceAttemptHTTP2:     true,
+		},
+	}
 	return &ProxyHandler{
 		reloader: reloader,
-		client: &http.Client{
-			Transport: &http.Transport{
-				DialContext: (&net.Dialer{
-					Timeout:   30 * time.Second,
-					KeepAlive: 30 * time.Second,
-				}).DialContext,
-				TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
-				TLSHandshakeTimeout:   15 * time.Second,
-				ResponseHeaderTimeout: 10 * time.Minute,
-				IdleConnTimeout:       120 * time.Second,
-				MaxIdleConns:          100,
-				MaxIdleConnsPerHost:   20,
-				ForceAttemptHTTP2:     true,
-			},
-		},
-		keys: pool,
+		client:   httpClient,
+		keys:     pool,
+		sessions: newSessionManager(httpClient),
 	}
 }
 
@@ -201,6 +204,16 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tried[keyIdx] = struct{}{}
 		log.Printf("→ upstream key[%d]=%s (attempt %d/%d)", keyIdx, fingerprint(upstreamKey), attempt+1, maxRetries)
 
+		// For free mode, ensure a freebuff session exists for this upstream key.
+		if isFreeMode {
+			if _, err := p.sessions.ensureSession(r.Context(), cfg.Upstream.BaseURL, upstreamKey); err != nil {
+				log.Printf("retry %d: freebuff session key[%d]=%s failed: %v", attempt+1, keyIdx, fingerprint(upstreamKey), err)
+				limits.AccountRefund(upstreamKey)
+				lastStatus = http.StatusBadGateway
+				continue
+			}
+		}
+
 		runID, err := p.startAgentRun(r.Context(), cfg.Upstream.BaseURL, upstreamKey, agentID)
 		if err != nil {
 			p.keys.MarkFailure(keyIdx)
@@ -212,12 +225,16 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		req["codebuff_metadata"] = map[string]any{
+		metadata := map[string]any{
 			"run_id":    runID,
 			"client_id": "freebuff2api",
 			"cost_mode": cfg.Upstream.CostMode,
 			"n":         1,
 		}
+		if isFreeMode {
+			p.sessions.injectInstanceID(metadata, upstreamKey)
+		}
+		req["codebuff_metadata"] = metadata
 		req["usage"] = map[string]any{"include": true}
 
 		modified, err := json.Marshal(req)
@@ -244,6 +261,17 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			limits.AccountRefund(upstreamKey)
 			log.Printf("retry %d: upstream net err key[%d]=%s: %v", attempt+1, keyIdx, fingerprint(upstreamKey), err)
 			lastStatus = http.StatusBadGateway
+			continue
+		}
+
+		// 426 = freebuff session stale; invalidate and retry same key.
+		if resp.StatusCode == 426 && isFreeMode {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			p.sessions.invalidate(upstreamKey)
+			log.Printf("retry %d: 426 session stale key[%d]=%s — re-requesting session", attempt+1, keyIdx, fingerprint(upstreamKey))
+			delete(tried, keyIdx)
+			lastStatus = 426
 			continue
 		}
 
@@ -407,11 +435,18 @@ func (p *ProxyHandler) servePinned(w http.ResponseWriter, r *http.Request, req m
 
 	// Resolve agentId for free mode; pinned path uses the same mapping.
 	pinnedAgentID := "base2"
-	if cfg.Upstream.CostMode == "free" {
+	pinnedFreeMode := cfg.Upstream.CostMode == "free"
+	if pinnedFreeMode {
 		model, _ := req["model"].(string)
 		if freeAgent, freeModel, ok := resolveFreeModeAgent(model); ok {
 			pinnedAgentID = freeAgent
 			req["model"] = freeModel
+		}
+		if _, err := p.sessions.ensureSession(r.Context(), cfg.Upstream.BaseURL, upstreamKey); err != nil {
+			log.Printf("pinned: freebuff session key[%d]=%s failed: %v", idx, fingerprint(upstreamKey), err)
+			writeSanitized(w, http.StatusBadGateway,
+				`{"error":{"message":"上游服务异常，请稍后重试","type":"upstream_error"}}`)
+			return
 		}
 	}
 
@@ -425,12 +460,16 @@ func (p *ProxyHandler) servePinned(w http.ResponseWriter, r *http.Request, req m
 		return
 	}
 
-	req["codebuff_metadata"] = map[string]any{
+	pinnedMeta := map[string]any{
 		"run_id":    runID,
 		"client_id": "freebuff2api",
 		"cost_mode": cfg.Upstream.CostMode,
 		"n":         1,
 	}
+	if pinnedFreeMode {
+		p.sessions.injectInstanceID(pinnedMeta, upstreamKey)
+	}
+	req["codebuff_metadata"] = pinnedMeta
 	req["usage"] = map[string]any{"include": true}
 
 	modified, err := json.Marshal(req)

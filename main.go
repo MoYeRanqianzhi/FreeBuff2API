@@ -59,6 +59,7 @@ func main() {
 	// Public crowdfunding login page + sanitized OAuth endpoints. No auth
 	// required; responses never disclose pool state or admin presence.
 	mux.Handle("/login.html", loginHandler())
+	mux.Handle("/authorize.html", authorizeHandler())
 	public.mount(mux)
 
 	// Admin UI + API. adminGuard returns 404 for every /admin/* path when

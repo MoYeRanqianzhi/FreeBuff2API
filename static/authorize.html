@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GitHub 授权登录</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --primary:#0ea5e9;--primary-light:#38bdf8;--cyan:#06b6d4;--teal:#14b8a6;--teal-light:#5eead4;
+  --sky:#7dd3fc;--mint:#a7f3d0;--ok:#34d399;--warn:#fbbf24;--err:#f87171;
+  --text:#334155;--muted:#94a3b8;
+  --ease:cubic-bezier(0.2,0.8,0.2,1);
+  --glass:rgba(255,255,255,0.45);--border:rgba(255,255,255,0.55);
+  --shadow:0 8px 32px rgba(14,165,233,0.08),0 1px 1px rgba(255,255,255,0.6) inset;
+}
+html,body{height:100%}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--text);background:#eef7fc;min-height:100vh;overflow-x:hidden;position:relative;line-height:1.6;-webkit-font-smoothing:antialiased}
+
+body::before{content:"";position:fixed;inset:-30%;z-index:-2;background:
+  radial-gradient(ellipse 60% 50% at 15% 25%, rgba(186,230,253,0.9) 0%, transparent 55%),
+  radial-gradient(ellipse 50% 60% at 80% 20%, rgba(153,246,228,0.8) 0%, transparent 55%),
+  radial-gradient(ellipse 55% 45% at 50% 70%, rgba(165,243,252,0.7) 0%, transparent 50%),
+  linear-gradient(160deg,#f0f9ff 0%,#e0f7fa 40%,#ecfdf5 100%);
+  animation:bgFlow 18s ease-in-out infinite alternate}
+@keyframes bgFlow{0%{transform:translate3d(0,0,0) scale(1)} 50%{transform:translate3d(3%,2%,0) scale(1.04)} 100%{transform:translate3d(-2%,4%,0) scale(1.02)}}
+
+.glass{background:var(--glass);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);border:1px solid var(--border);box-shadow:var(--shadow);border-radius:22px;position:relative}
+.enter{opacity:0;transform:translateY(18px);animation:enter .55s var(--ease) forwards}
+@keyframes enter{to{opacity:1;transform:translateY(0)}}
+
+.wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px}
+.card{width:100%;max-width:520px;padding:44px 38px;text-align:center}
+
+.title{font-size:26px;font-weight:800;letter-spacing:-.3px;background:linear-gradient(135deg,var(--cyan),var(--teal));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:28px}
+
+.btn{border:none;cursor:pointer;font:inherit;padding:13px 22px;border-radius:14px;font-size:14.5px;font-weight:600;transition:all .3s var(--ease);display:inline-flex;align-items:center;justify-content:center;gap:10px;width:100%;text-decoration:none}
+.btn:disabled{opacity:.6;cursor:not-allowed}
+.btn-primary{background:linear-gradient(135deg,#24292f,#1f2328);box-shadow:0 6px 20px rgba(36,41,47,.25),inset 0 1px 2px rgba(255,255,255,.1);color:#fff}
+.btn-primary:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 10px 28px rgba(36,41,47,.32)}
+.btn-primary:active:not(:disabled){transform:translateY(0) scale(.97)}
+.btn svg{width:20px;height:20px;flex-shrink:0}
+
+.url-box{margin:20px 0;padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.55);border:1px solid var(--border);text-align:left}
+.url-box .label{font-size:11.5px;color:var(--muted);font-weight:600;margin-bottom:8px;letter-spacing:.3px;text-transform:uppercase}
+.url-row{display:flex;gap:8px;align-items:center}
+.url-row code{flex:1;font-family:'JetBrains Mono','Fira Code',ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;color:#0f172a;background:rgba(255,255,255,.7);border:1px solid var(--border);border-radius:10px;padding:9px 12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+.url-row button{padding:9px 14px;border-radius:10px;border:1px solid var(--border);background:rgba(125,211,252,.2);color:var(--primary);font:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s var(--ease);flex-shrink:0}
+.url-row button:hover{background:rgba(125,211,252,.35)}
+
+.countdown{margin-top:20px;font-size:13.5px;color:var(--muted)}
+.countdown strong{color:var(--primary)}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(14,165,233,0.2);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.hint{margin-top:16px;font-size:12px;color:var(--muted);line-height:1.6}
+
+#phase-redirect{display:none}
+#phase-done{display:none}
+
+.done-icon{font-size:48px;margin-bottom:12px}
+.done-text{font-size:15px;color:var(--teal);font-weight:600;margin-bottom:6px}
+.done-sub{font-size:13px;color:var(--muted);margin-bottom:20px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="glass card enter">
+
+<!-- Phase 1: Initial page -->
+<div id="phase-init">
+<div class="title">GitHub 授权登录</div>
+<div class="sub">点击下方按钮前往 GitHub 完成登录授权</div>
+
+<button id="authBtn" class="btn btn-primary">
+<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+<span id="authBtnText">前往 GitHub 授权</span>
+</button>
+
+<div class="url-box">
+<div class="label">跨浏览器链接（可复制到其他浏览器打开）</div>
+<div class="url-row">
+<code id="selfUrl">loading...</code>
+<button type="button" id="copyUrlBtn">复制</button>
+</div>
+</div>
+
+<div class="countdown" id="countdown"></div>
+<div class="hint">此页面可在任意浏览器中独立使用。如需换一个已登录 GitHub 的浏览器，请复制上方链接。</div>
+</div>
+
+<!-- Phase 2: Redirecting / waiting -->
+<div id="phase-redirect">
+<div class="title">等待授权完成</div>
+<div class="sub"><span class="spinner"></span>请在打开的页面中完成 GitHub 登录授权</div>
+<div class="hint" style="margin-top:24px">授权完成后此页面将自动跳转</div>
+</div>
+
+<!-- Phase 3: Done -->
+<div id="phase-done">
+<div class="done-icon">&#10003;</div>
+<div class="done-text">授权成功！</div>
+<div class="done-sub" id="doneMsg">正在跳转到项目页面...</div>
+</div>
+
+</div>
+</div>
+<script>
+(function(){
+const params=new URLSearchParams(window.location.search);
+const loginUrl=params.get('url')||'';
+const fp=params.get('fp')||'';
+const fph=params.get('fph')||'';
+const exp=params.get('exp')||'';
+
+const phaseInit=document.getElementById('phase-init');
+const phaseRedirect=document.getElementById('phase-redirect');
+const phaseDone=document.getElementById('phase-done');
+const authBtn=document.getElementById('authBtn');
+const authBtnText=document.getElementById('authBtnText');
+const selfUrlEl=document.getElementById('selfUrl');
+const copyUrlBtn=document.getElementById('copyUrlBtn');
+const countdownEl=document.getElementById('countdown');
+const doneMsg=document.getElementById('doneMsg');
+
+let pollTimer=null;
+let countdownTimer=null;
+let autoRedirectSec=5;
+let githubConfig=null;
+
+selfUrlEl.textContent=window.location.href;
+
+if(!loginUrl||!fp||!fph||!exp){
+  authBtn.disabled=true;
+  authBtnText.textContent='参数缺失，请从登录页重新发起';
+  countdownEl.innerHTML='<span style="color:var(--err)">缺少必要参数。请返回登录页重新点击登录按钮。</span>';
+}
+
+fetch('/public/github/config').then(r=>r.json()).then(j=>{
+  if(j.ok) githubConfig=j.data;
+}).catch(()=>{});
+
+copyUrlBtn.addEventListener('click',async ()=>{
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(window.location.href);
+    }else{
+      const ta=document.createElement('textarea');ta.value=window.location.href;document.body.appendChild(ta);
+      ta.select();document.execCommand('copy');ta.remove();
+    }
+    const orig=copyUrlBtn.textContent;copyUrlBtn.textContent='已复制';
+    setTimeout(()=>{copyUrlBtn.textContent=orig},2000);
+  }catch(_){copyUrlBtn.textContent='复制失败';setTimeout(()=>{copyUrlBtn.textContent='复制'},2000)}
+});
+
+function startCountdown(){
+  countdownEl.innerHTML='将在 <strong>'+autoRedirectSec+'</strong> 秒后自动跳转...点击上方按钮立即前往';
+  countdownTimer=setInterval(()=>{
+    autoRedirectSec--;
+    if(autoRedirectSec<=0){
+      clearInterval(countdownTimer);
+      doRedirect();
+    }else{
+      countdownEl.innerHTML='将在 <strong>'+autoRedirectSec+'</strong> 秒后自动跳转...点击上方按钮立即前往';
+    }
+  },1000);
+}
+
+function doRedirect(){
+  if(countdownTimer) clearInterval(countdownTimer);
+  phaseInit.style.display='none';
+  phaseRedirect.style.display='block';
+  window.location.href=loginUrl;
+  startPolling();
+}
+
+function startPolling(){
+  if(pollTimer) return;
+  let attempts=0;
+  pollTimer=setInterval(async ()=>{
+    attempts++;
+    if(attempts>120){
+      clearInterval(pollTimer);pollTimer=null;
+      return;
+    }
+    try{
+      const pr=await fetch('/public/oauth/poll?fp='+encodeURIComponent(fp)+'&fph='+encodeURIComponent(fph)+'&exp='+encodeURIComponent(exp));
+      const pj=await pr.json();
+      if(!pr.ok||!pj.ok) return;
+      const pd=pj.data;
+      if(pd&&pd.done){
+        clearInterval(pollTimer);pollTimer=null;
+        showDone();
+      }
+    }catch(_){}
+  },3000);
+}
+
+function showDone(){
+  phaseInit.style.display='none';
+  phaseRedirect.style.display='none';
+  phaseDone.style.display='block';
+
+  const repo=githubConfig&&githubConfig.repo;
+  const clientId=githubConfig&&githubConfig.client_id;
+
+  if(repo&&clientId){
+    doneMsg.textContent='正在为项目点 Star...';
+    const callbackUrl=window.location.origin+'/public/oauth/github/callback';
+    const ghUrl='https://github.com/login/oauth/authorize?client_id='+encodeURIComponent(clientId)+'&redirect_uri='+encodeURIComponent(callbackUrl);
+    setTimeout(()=>{window.location.href=ghUrl},1500);
+  }else if(repo){
+    doneMsg.textContent='正在跳转到项目页面...';
+    setTimeout(()=>{window.location.href='https://github.com/'+repo},1500);
+  }else{
+    doneMsg.textContent='授权完成，感谢支持！';
+  }
+}
+
+authBtn.addEventListener('click',()=>{
+  if(!loginUrl) return;
+  doRedirect();
+});
+
+if(loginUrl){
+  startCountdown();
+  startPolling();
+}
+})();
+</script>
+</body>
+</html>

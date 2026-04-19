@@ -45,3 +45,22 @@ func loginHandler() http.Handler {
 		w.Write(data)
 	})
 }
+
+// authorizeHandler serves the standalone OAuth authorize wrapper page.
+// This page can be opened in any browser independently for cross-browser login.
+func authorizeHandler() http.Handler {
+	data, err := adminAssets.ReadFile("static/authorize.html")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Path != "/authorize.html" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Write(data)
+	})
+}

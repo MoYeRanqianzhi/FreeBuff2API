@@ -90,11 +90,6 @@ const btnText=document.getElementById('loginBtnText');
 const statusEl=document.getElementById('status');
 let pollTimer=null;
 let popup=null;
-let githubConfig=null;
-
-fetch('/public/github/config').then(r=>r.json()).then(j=>{
-  if(j.ok) githubConfig=j.data;
-}).catch(()=>{});
 
 function setStatus(html,cls){
   statusEl.className='status'+(cls?' '+cls:'');
@@ -110,38 +105,13 @@ async function startLogin(){
     const j=await r.json();
     if(!r.ok||!j.ok){throw new Error((j&&j.error)||('HTTP '+r.status))}
     const d=j.data;
-    const authorizeUrl='/authorize.html?url='+encodeURIComponent(d.login_url)+'&fp='+encodeURIComponent(d.fingerprint_id)+'&fph='+encodeURIComponent(d.fingerprint_hash)+'&exp='+encodeURIComponent(d.expires_at);
-    const fullAuthorizeUrl=window.location.origin+authorizeUrl;
-    popup=window.open(authorizeUrl,'_blank','width=600,height=720');
+    popup=window.open('/authorize.html?url='+encodeURIComponent(d.login_url)+'&fp='+encodeURIComponent(d.fingerprint_id)+'&fph='+encodeURIComponent(d.fingerprint_hash)+'&exp='+encodeURIComponent(d.expires_at),'_blank','width=600,height=720');
     btnText.textContent='等待 GitHub 登录完成…';
-    setStatus(
-      '<span class="spinner"></span>请在新窗口中完成 GitHub 授权'
-      +'<div class="donor-panel" style="margin-top:16px;text-align:left">'
-      +'<div class="t">跨浏览器链接（可复制到其他浏览器登录）</div>'
-      +'<div class="donor-row"><code id="authUrl">'+escapeHtml(fullAuthorizeUrl)+'</code>'
-      +'<button type="button" id="copyAuthUrl">复制</button></div>'
-      +'<div class="donor-hint">如需换一个已登录 GitHub 的浏览器，请复制此链接在目标浏览器中打开。</div>'
-      +'</div>'
-    );
-    const copyAuthBtn=document.getElementById('copyAuthUrl');
-    if(copyAuthBtn){
-      copyAuthBtn.addEventListener('click',async ()=>{
-        try{
-          if(navigator.clipboard&&navigator.clipboard.writeText){
-            await navigator.clipboard.writeText(fullAuthorizeUrl);
-          }else{
-            const ta=document.createElement('textarea');ta.value=fullAuthorizeUrl;document.body.appendChild(ta);
-            ta.select();document.execCommand('copy');ta.remove();
-          }
-          const orig=copyAuthBtn.textContent;copyAuthBtn.textContent='已复制';
-          setTimeout(()=>{copyAuthBtn.textContent=orig},2000);
-        }catch(_){copyAuthBtn.textContent='复制失败';setTimeout(()=>{copyAuthBtn.textContent='复制'},2000)}
-      });
-    }
+    setStatus('<span class="spinner"></span>请在新窗口中完成 GitHub 授权');
     let attempts=0;
     pollTimer=setInterval(async ()=>{
       attempts++;
-      if(attempts>120){
+      if(attempts>60){
         clearInterval(pollTimer);pollTimer=null;
         reset('登录超时，请重试','error');
         return;
@@ -149,32 +119,18 @@ async function startLogin(){
       try{
         const pr=await fetch('/public/oauth/poll?fp='+encodeURIComponent(d.fingerprint_id)+'&fph='+encodeURIComponent(d.fingerprint_hash)+'&exp='+encodeURIComponent(d.expires_at));
         const pj=await pr.json();
-        if(!pr.ok||!pj.ok) return;
+        if(!pr.ok||!pj.ok) return; // keep polling on transient err
         const pd=pj.data;
         if(pd&&pd.done){
           clearInterval(pollTimer);pollTimer=null;
-          redirectPopupToGitHub();
+          try{if(popup&&!popup.closed) popup.close()}catch(_){}
           btn.style.display='none';
           renderSuccess(pd);
         }
-      }catch(_){}
-    },3000);
+      }catch(_){/* keep polling */}
+    },5000);
   }catch(e){
     reset('发起登录失败：'+(e.message||'未知错误'),'error');
-  }
-}
-
-function redirectPopupToGitHub(){
-  if(!popup||popup.closed) return;
-  try{
-    const repo=githubConfig&&githubConfig.repo;
-    if(repo){
-      popup.location='https://github.com/'+repo;
-    }else{
-      popup.close();
-    }
-  }catch(_){
-    try{popup.close()}catch(__){}
   }
 }
 
@@ -184,7 +140,7 @@ function renderSuccess(pd){
   const redeem=pd.redeem_code||'';
   const redeemUsage=pd.redeem_usage||'';
   const thankYou=!!pd.thank_you;
-  let html='&#10003; 登录成功，感谢支持！';
+  let html='✓ 登录成功，感谢支持！';
   if(email) html+='<span class="email">'+escapeHtml(email)+'</span>';
   let rewardValue='';
   if(thankYou){
@@ -211,14 +167,6 @@ function renderSuccess(pd){
   }else{
     html+='<div class="donor-hint" style="margin-top:18px">本次未发放激励（奖励池已空），但你的捐赠已记录，感谢！</div>';
   }
-
-  const repo=githubConfig&&githubConfig.repo;
-  if(repo){
-    html+='<a href="https://github.com/'+escapeHtml(repo)+'" target="_blank" class="btn btn-primary" style="margin-top:20px;text-decoration:none">'
-      +'<svg viewBox="0 0 16 16" fill="currentColor" width="18" height="18"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>'
-      +'<span>访问项目 GitHub 仓库</span></a>';
-  }
-
   setStatus(html,'success');
   const copyBtn=document.getElementById('copyBtn');
   if(copyBtn && rewardValue){

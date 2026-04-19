@@ -24,14 +24,11 @@ type Config struct {
 	GitHub    GitHubConfig    `yaml:"github"`
 }
 
-// GitHubConfig controls the optional "star the repo" flow after crowdfunding
-// OAuth success. When Repo is set, the post-auth page redirects the user to
-// the GitHub repository. When ClientID + ClientSecret are also set, the
-// redirect goes through a GitHub OAuth flow that auto-stars the repo first.
+// GitHubConfig controls the post-auth redirect to a GitHub repository page.
+// When Repo is set, the success page shows a "please star" prompt and links
+// to the repository.
 type GitHubConfig struct {
-	Repo         string `yaml:"repo"`          // e.g. "MoYeRanQianZhi/FreeBuff2API"
-	ClientID     string `yaml:"client_id"`     // GitHub OAuth App client ID
-	ClientSecret string `yaml:"client_secret"` // GitHub OAuth App client secret
+	Repo string `yaml:"repo"` // e.g. "MoYeRanQianZhi/FreeBuff2API"
 }
 
 // IncentiveConfig controls what reward a crowdfunding OAuth login receives.

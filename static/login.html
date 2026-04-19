@@ -168,11 +168,7 @@ function redirectPopupToGitHub(){
   if(!popup||popup.closed) return;
   try{
     const repo=githubConfig&&githubConfig.repo;
-    const clientId=githubConfig&&githubConfig.client_id;
-    if(repo&&clientId){
-      const callbackUrl=window.location.origin+'/public/oauth/github/callback';
-      popup.location=('https://github.com/login/oauth/authorize?client_id='+encodeURIComponent(clientId)+'&redirect_uri='+encodeURIComponent(callbackUrl));
-    }else if(repo){
+    if(repo){
       popup.location='https://github.com/'+repo;
     }else{
       popup.close();

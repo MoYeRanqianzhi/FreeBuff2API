@@ -1,12 +1,8 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 )
 
@@ -26,7 +22,6 @@ func (p *PublicHandler) mount(mux *http.ServeMux) {
 	mux.HandleFunc("/public/oauth/start", p.handleStart)
 	mux.HandleFunc("/public/oauth/poll", p.handlePoll)
 	mux.HandleFunc("/public/github/config", p.handleGitHubConfig)
-	mux.HandleFunc("/public/oauth/github/callback", p.handleGitHubCallback)
 }
 
 // handleStart kicks off the device-code flow. Response contains only what the
@@ -137,112 +132,14 @@ func clientIP(r *http.Request) string {
 	return addr
 }
 
-// handleGitHubConfig returns public-safe GitHub config (repo + client_id, no secret).
+// handleGitHubConfig returns the configured GitHub repo name (public-safe).
 func (p *PublicHandler) handleGitHubConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	cfg := p.admin.reloader.Current()
-	body := map[string]any{
+	writeOK(w, map[string]any{
 		"repo": cfg.GitHub.Repo,
-	}
-	if cfg.GitHub.ClientID != "" {
-		body["client_id"] = cfg.GitHub.ClientID
-	}
-	writeOK(w, body)
-}
-
-// handleGitHubCallback exchanges a GitHub OAuth code for a token, stars the
-// configured repo, and redirects the user to the repo page.
-func (p *PublicHandler) handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	cfg := p.admin.reloader.Current()
-	if cfg.GitHub.Repo == "" || cfg.GitHub.ClientID == "" || cfg.GitHub.ClientSecret == "" {
-		http.Redirect(w, r, "https://github.com/"+cfg.GitHub.Repo, http.StatusFound)
-		return
-	}
-
-	code := r.URL.Query().Get("code")
-	if code == "" {
-		http.Redirect(w, r, "https://github.com/"+cfg.GitHub.Repo, http.StatusFound)
-		return
-	}
-
-	token, err := exchangeGitHubCode(cfg.GitHub.ClientID, cfg.GitHub.ClientSecret, code)
-	if err != nil {
-		log.Printf("github oauth exchange failed: %v", err)
-		http.Redirect(w, r, "https://github.com/"+cfg.GitHub.Repo, http.StatusFound)
-		return
-	}
-
-	if err := starGitHubRepo(token, cfg.GitHub.Repo); err != nil {
-		log.Printf("github star failed: %v", err)
-	} else {
-		log.Printf("github star success: %s", cfg.GitHub.Repo)
-	}
-
-	http.Redirect(w, r, "https://github.com/"+cfg.GitHub.Repo, http.StatusFound)
-}
-
-func exchangeGitHubCode(clientID, clientSecret, code string) (string, error) {
-	data := url.Values{
-		"client_id":     {clientID},
-		"client_secret": {clientSecret},
-		"code":          {code},
-	}
-	req, err := http.NewRequest(http.MethodPost, "https://github.com/login/oauth/access_token", strings.NewReader(data.Encode()))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("token exchange: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-
-	var result struct {
-		AccessToken string `json:"access_token"`
-		Error       string `json:"error"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("parse token response: %w", err)
-	}
-	if result.Error != "" {
-		return "", fmt.Errorf("github oauth error: %s", result.Error)
-	}
-	if result.AccessToken == "" {
-		return "", fmt.Errorf("empty access_token")
-	}
-	return result.AccessToken, nil
-}
-
-func starGitHubRepo(token, repo string) error {
-	req, err := http.NewRequest(http.MethodPut, "https://api.github.com/user/starred/"+repo, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "freebuff2api/1.0")
-	req.ContentLength = 0
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("star request: %w", err)
-	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("star status %d", resp.StatusCode)
-	}
-	return nil
+	})
 }

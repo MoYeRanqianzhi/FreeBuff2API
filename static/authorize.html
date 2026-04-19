@@ -203,16 +203,9 @@ function showDone(){
   phaseDone.style.display='block';
 
   const repo=githubConfig&&githubConfig.repo;
-  const clientId=githubConfig&&githubConfig.client_id;
-
-  if(repo&&clientId){
-    doneMsg.textContent='正在为项目点 Star...';
-    const callbackUrl=window.location.origin+'/public/oauth/github/callback';
-    const ghUrl='https://github.com/login/oauth/authorize?client_id='+encodeURIComponent(clientId)+'&redirect_uri='+encodeURIComponent(callbackUrl);
-    setTimeout(()=>{window.location.href=ghUrl},1500);
-  }else if(repo){
-    doneMsg.textContent='正在跳转到项目页面...';
-    setTimeout(()=>{window.location.href='https://github.com/'+repo},1500);
+  if(repo){
+    doneMsg.innerHTML='正在跳转到项目页面，如果觉得好用请点个 &#11088; Star 支持一下！';
+    setTimeout(()=>{window.location.href='https://github.com/'+repo},2000);
   }else{
     doneMsg.textContent='授权完成，感谢支持！';
   }

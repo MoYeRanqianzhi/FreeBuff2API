@@ -96,13 +96,6 @@ incentive:
   redeem_usage: ""              # e.g. "前往 https://example.com/redeem 兑换"
 
 # ── GitHub 集成 ──
-# 众筹登录成功后将用户引导到 GitHub 仓库页面。
-# 可选：配置 GitHub OAuth App 实现自动为仓库点 Star。
-#
-# 创建 GitHub OAuth App：https://github.com/settings/developers
-# → New OAuth App → Authorization callback URL 填写:
-#   https://<你的域名>/public/oauth/github/callback
+# 众筹登录成功后将用户引导到 GitHub 仓库页面，并提示 Star 支持。
 github:
   repo: ""                      # e.g. "MoYeRanQianZhi/FreeBuff2API"
-  client_id: ""                 # GitHub OAuth App client ID (留空则跳过自动 Star)
-  client_secret: ""             # GitHub OAuth App client secret

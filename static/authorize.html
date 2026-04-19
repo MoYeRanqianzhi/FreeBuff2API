@@ -190,7 +190,6 @@ function startPolling(){
       const pd=pj.data;
       if(pd&&pd.done){
         clearInterval(pollTimer);pollTimer=null;
-        try{if(childWin&&!childWin.closed) childWin.close()}catch(_){}
         showDone();
       }
     }catch(_){}
@@ -199,15 +198,47 @@ function startPolling(){
 
 function showDone(){
   showPhase('done');
-  if(githubRepo){
-    const repoUrl='https://github.com/'+githubRepo;
-    repoLink.href=repoUrl;
-    doneMsg.textContent='即将跳转到项目 GitHub 页面，请帮忙点个 Star 支持一下！';
-    setTimeout(()=>{window.location.href=repoUrl},3000);
-  }else{
+  if(!githubRepo){
     doneMsg.textContent='授权完成，感谢支持！';
     repoLink.style.display='none';
+    try{if(childWin&&!childWin.closed) childWin.close()}catch(_){}
+    return;
   }
+
+  const repoUrl='https://github.com/'+githubRepo;
+  repoLink.href=repoUrl;
+
+  // redirect child window to the GitHub repo page
+  if(childWin&&!childWin.closed){
+    try{childWin.location=repoUrl}catch(_){}
+    doneMsg.textContent='已在窗口中打开项目页面，正在尝试自动 Star...';
+
+    // attempt to auto-click the star button after the page loads
+    // this will fail due to cross-origin but we try anyway
+    setTimeout(()=>{tryAutoStar()},3000);
+    setTimeout(()=>{tryAutoStar()},5000);
+  }else{
+    doneMsg.textContent='即将跳转到项目 GitHub 页面，请帮忙点个 Star 支持一下！';
+    setTimeout(()=>{window.location.href=repoUrl},3000);
+  }
+}
+
+function tryAutoStar(){
+  if(!childWin||childWin.closed) return;
+  try{
+    // cross-origin: this will throw, but we try
+    const starBtn=childWin.document.querySelector('button[data-ga-click*="star"]')
+      ||childWin.document.querySelector('.js-social-form button[type="submit"]')
+      ||childWin.document.querySelector('form.js-social-form button');
+    if(starBtn){
+      starBtn.click();
+      doneMsg.textContent='已自动为项目点亮 Star ⭐ 感谢支持！';
+      return;
+    }
+  }catch(_){
+    // cross-origin blocked — expected
+  }
+  doneMsg.textContent='请在打开的窗口中点击 Star ⭐ 按钮支持项目！';
 }
 
 authBtn.addEventListener('click',openAuth);

@@ -49,6 +49,10 @@ func Run(assets embed.FS) {
 	reloader.SetLimiters(limiters)
 	proxy := NewProxyHandler(reloader, pool)
 
+	if cfg.Upstream.CostMode == "free" && len(keys) > 0 {
+		proxy.sessions.warmUp(cfg.Upstream.BaseURL, keys)
+	}
+
 	admin := NewAdminHandler(reloader, pool, redeem)
 	public := NewPublicHandler(admin)
 

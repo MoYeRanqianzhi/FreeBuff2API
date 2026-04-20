@@ -1,9 +1,11 @@
-package main
+package app
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // PublicHandler exposes the subset of OAuth needed for the crowdfunding login
@@ -21,6 +23,7 @@ func NewPublicHandler(a *AdminHandler) *PublicHandler {
 func (p *PublicHandler) mount(mux *http.ServeMux) {
 	mux.HandleFunc("/public/oauth/start", p.handleStart)
 	mux.HandleFunc("/public/oauth/poll", p.handlePoll)
+	mux.HandleFunc("/public/oauth/events", p.handleEvents)
 	mux.HandleFunc("/public/github/config", p.handleGitHubConfig)
 }
 
@@ -130,6 +133,62 @@ func clientIP(r *http.Request) string {
 		return addr[:i]
 	}
 	return addr
+}
+
+// handleEvents is an SSE endpoint that blocks until the OAuth flow completes,
+// then sends a single "done" event. This gives authorize.html near-zero-latency
+// notification of auth success so it can redirect to the GitHub repo immediately.
+func (p *PublicHandler) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	q := r.URL.Query()
+	fpID := q.Get("fp")
+	fpHash := q.Get("fph")
+	expiresAt := q.Get("exp")
+	if fpID == "" || fpHash == "" || expiresAt == "" {
+		writeErr(w, http.StatusBadRequest, "missing params")
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	flusher.Flush()
+
+	ctx := r.Context()
+	ticker := time.NewTicker(800 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.After(10 * time.Minute)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timeout:
+			fmt.Fprintf(w, "event: timeout\ndata: {}\n\n")
+			flusher.Flush()
+			return
+		case <-ticker.C:
+			res, err := p.admin.oauthPoll(ctx, fpID, fpHash, expiresAt)
+			if err != nil {
+				continue
+			}
+			if !res.Pending {
+				fmt.Fprintf(w, "event: done\ndata: {}\n\n")
+				flusher.Flush()
+				return
+			}
+		}
+	}
 }
 
 // handleGitHubConfig returns the configured GitHub repo name (public-safe).

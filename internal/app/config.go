@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"fmt"
@@ -135,6 +135,9 @@ type LoggingConfig struct {
 // DefaultConfigPath is relative to the current working directory.
 const DefaultConfigPath = "config.yaml"
 
+// DefaultGitHubRepo is used when config.yaml does not specify github.repo.
+const DefaultGitHubRepo = "MoYeRanQianZhi/FreeBuff2API"
+
 // LoadConfig reads a YAML config file from the given path and applies defaults.
 // The file must exist; missing or unreadable config is a fatal error.
 func LoadConfig(path string) (*Config, error) {
@@ -197,6 +200,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Incentive.RedeemCodesFile == "" {
 		c.Incentive.RedeemCodesFile = "redeem_codes.txt"
+	}
+	if c.GitHub.Repo == "" {
+		c.GitHub.Repo = DefaultGitHubRepo
 	}
 
 	c.Auth.APIKeys = dedupStrings(c.Auth.APIKeys)

@@ -1,4 +1,4 @@
-package main
+package app
 
 // freeModeEntry maps a model to its required agentId for codebuff free mode.
 type freeModeEntry struct {

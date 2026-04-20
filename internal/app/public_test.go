@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"encoding/json"
@@ -546,6 +546,11 @@ func TestPublicStartErrorIsGeneric(t *testing.T) {
 }
 
 func TestLoginHTMLServed(t *testing.T) {
+	// loginHandler() reads Assets at call time. In production, Assets is set
+	// by Run() before any handler is created. In tests we point it at the
+	// project root via os.DirFS so the real static/ files are available.
+	Assets = os.DirFS("../..")
+
 	// loginHandler() reads the embedded asset; it should serve login.html at
 	// the exact path and 404 everything else.
 	h := loginHandler()

@@ -1,21 +1,20 @@
-package main
+package app
 
 import (
-	"embed"
 	"io/fs"
 	"net/http"
 )
 
-// adminAssets embeds the admin UI. When static/ is missing the build still
-// compiles and adminStatic serves a one-line stub page.
-//
-//go:embed all:static
-var adminAssets embed.FS
+// Assets holds the embedded static/ filesystem. It is set by the root main
+// package at startup via Run(assets) before any handler reads it. The concrete
+// type at runtime is embed.FS, but tests can substitute any fs.FS (e.g.
+// fstest.MapFS or os.DirFS).
+var Assets fs.FS
 
 // adminStatic returns an http.Handler that serves files from the embedded
 // static/ directory, rooted so /admin/ maps to static/index.html.
 func adminStatic() http.Handler {
-	sub, err := fs.Sub(adminAssets, "static")
+	sub, err := fs.Sub(Assets, "static")
 	if err != nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "admin UI not built into this binary", http.StatusNotFound)
@@ -30,7 +29,7 @@ func adminStatic() http.Handler {
 // belongs to the admin surface and its existence should not be discoverable
 // without the admin token.
 func loginHandler() http.Handler {
-	data, err := adminAssets.ReadFile("static/login.html")
+	data, err := fs.ReadFile(Assets, "static/login.html")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			http.NotFound(w, r)
@@ -49,7 +48,7 @@ func loginHandler() http.Handler {
 // authorizeHandler serves the standalone OAuth authorize wrapper page.
 // This page can be opened in any browser independently for cross-browser login.
 func authorizeHandler() http.Handler {
-	data, err := adminAssets.ReadFile("static/authorize.html")
+	data, err := fs.ReadFile(Assets, "static/authorize.html")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			http.NotFound(w, r)

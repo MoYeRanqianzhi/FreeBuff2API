@@ -35,217 +35,93 @@ body::before{content:"";position:fixed;inset:-30%;z-index:-2;background:
 .sub{color:var(--muted);font-size:13px;margin-bottom:28px}
 
 .btn{border:none;cursor:pointer;font:inherit;padding:13px 22px;border-radius:14px;font-size:14.5px;font-weight:600;transition:all .3s var(--ease);display:inline-flex;align-items:center;justify-content:center;gap:10px;width:100%;text-decoration:none}
-.btn:disabled{opacity:.6;cursor:not-allowed}
 .btn-primary{background:linear-gradient(135deg,#24292f,#1f2328);box-shadow:0 6px 20px rgba(36,41,47,.25),inset 0 1px 2px rgba(255,255,255,.1);color:#fff}
 .btn-primary:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 10px 28px rgba(36,41,47,.32)}
 .btn-primary:active:not(:disabled){transform:translateY(0) scale(.97)}
 .btn svg{width:20px;height:20px;flex-shrink:0}
 
-.url-box{margin:20px 0;padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.55);border:1px solid var(--border);text-align:left}
-.url-box .label{font-size:11.5px;color:var(--muted);font-weight:600;margin-bottom:8px;letter-spacing:.3px;text-transform:uppercase}
-.url-row{display:flex;gap:8px;align-items:center}
-.url-row code{flex:1;font-family:'JetBrains Mono','Fira Code',ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;color:#0f172a;background:rgba(255,255,255,.7);border:1px solid var(--border);border-radius:10px;padding:9px 12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
-.url-row button{padding:9px 14px;border-radius:10px;border:1px solid var(--border);background:rgba(125,211,252,.2);color:var(--primary);font:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s var(--ease);flex-shrink:0}
-.url-row button:hover{background:rgba(125,211,252,.35)}
-
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(14,165,233,0.2);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}
 @keyframes spin{to{transform:rotate(360deg)}}
 .hint{margin-top:16px;font-size:12px;color:var(--muted);line-height:1.6}
-
-.phase{display:none}
-.phase.active{display:block}
-
-.star-icon{font-size:64px;line-height:1;margin-bottom:16px}
-.star-text{font-size:18px;font-weight:700;color:var(--teal);margin-bottom:6px}
-.star-sub{font-size:13px;color:var(--muted);margin-bottom:24px}
 </style>
 </head>
 <body>
 <div class="wrap">
 <div class="glass card enter">
-
-<!-- Phase 1: ready to authorize -->
-<div id="phase-init" class="phase active">
-<div class="title">GitHub 授权登录</div>
-<div class="sub">点击下方按钮前往 GitHub 完成登录授权</div>
-
-<button id="authBtn" class="btn btn-primary">
+<div class="title" id="title">等待授权完成</div>
+<div class="sub" id="sub"><span class="spinner"></span>请在打开的页面中完成 GitHub 登录授权</div>
+<div id="fallback" style="display:none">
+<button id="openBtn" class="btn btn-primary">
 <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-<span id="authBtnText">前往 GitHub 授权</span>
+<span>开始登录</span>
 </button>
-
-<div class="url-box">
-<div class="label">跨浏览器链接（可复制到其他浏览器打开）</div>
-<div class="url-row">
-<code id="selfUrl">loading...</code>
-<button type="button" id="copyUrlBtn">复制</button>
 </div>
-</div>
-
-<div class="hint">此页面可在任意浏览器中独立使用。如需换一个已登录 GitHub 的浏览器，请复制上方链接。</div>
-</div>
-
-<!-- Phase 2: waiting for auth -->
-<div id="phase-wait" class="phase">
-<div class="title">等待授权完成</div>
-<div class="sub"><span class="spinner"></span>请在打开的页面中完成 GitHub 登录授权</div>
-<div class="hint" style="margin-top:24px">授权完成后此页面将自动跳转到项目仓库</div>
-</div>
-
-<!-- Phase 3: done — star prompt -->
-<div id="phase-done" class="phase">
-<div class="star-icon">⭐</div>
-<div class="star-text">授权成功，感谢支持！</div>
-<div class="star-sub" id="doneMsg">即将跳转到项目 GitHub 页面，请帮忙点个 Star 支持一下！</div>
-<a id="repoLink" href="#" target="_self" class="btn btn-primary">
-<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-<span>前往 GitHub 仓库点 Star ⭐</span>
-</a>
-</div>
-
+<div class="hint">授权完成后将自动跳转</div>
 </div>
 </div>
 <script>
 (function(){
-const params=new URLSearchParams(window.location.search);
-const loginUrl=params.get('url')||'';
-const fp=params.get('fp')||'';
-const fph=params.get('fph')||'';
-const exp=params.get('exp')||'';
+var params=new URLSearchParams(window.location.search);
+var loginUrl=params.get('url')||'';
+var fp=params.get('fp')||'';
+var fph=params.get('fph')||'';
+var exp=params.get('exp')||'';
 
-const phases={
-  init:document.getElementById('phase-init'),
-  wait:document.getElementById('phase-wait'),
-  done:document.getElementById('phase-done')
-};
-const authBtn=document.getElementById('authBtn');
-const authBtnText=document.getElementById('authBtnText');
-const selfUrlEl=document.getElementById('selfUrl');
-const copyUrlBtn=document.getElementById('copyUrlBtn');
-const doneMsg=document.getElementById('doneMsg');
-const repoLink=document.getElementById('repoLink');
+var titleEl=document.getElementById('title');
+var subEl=document.getElementById('sub');
+var fallbackEl=document.getElementById('fallback');
+var openBtn=document.getElementById('openBtn');
 
-let pollTimer=null;
-let childWin=null;
-let githubRepo='';
+var childWin=null;
+var done=false;
+var githubRepo='';
 
-selfUrlEl.textContent=window.location.href;
+fetch('/public/github/config').then(function(r){return r.json()}).then(function(j){
+  if(j.ok&&j.data&&j.data.repo) githubRepo=j.data.repo;
+}).catch(function(){});
+
+function goRepo(){
+  if(done) return;
+  done=true;
+  try{if(childWin&&!childWin.closed) childWin.close()}catch(e){}
+  if(githubRepo){
+    window.location.href='https://github.com/'+githubRepo;
+  }else{
+    titleEl.textContent='授权成功';
+    subEl.textContent='感谢支持！';
+  }
+}
+
+function watchChild(){
+  var t=setInterval(function(){
+    if(done){clearInterval(t);return}
+    if(childWin&&childWin.closed){clearInterval(t);goRepo()}
+  },200);
+}
+
+function openLogin(){
+  childWin=window.open(loginUrl);
+  if(childWin){
+    fallbackEl.style.display='none';
+    watchChild();
+  }else{
+    fallbackEl.style.display='block';
+  }
+}
 
 if(!loginUrl||!fp||!fph||!exp){
-  authBtn.disabled=true;
-  authBtnText.textContent='参数缺失，请从登录页重新发起';
+  titleEl.textContent='参数缺失';
+  subEl.textContent='请从登录页重新发起';
+}else{
+  openLogin();
+  openBtn.addEventListener('click',openLogin);
+
+  var evtUrl='/public/oauth/events?fp='+encodeURIComponent(fp)+'&fph='+encodeURIComponent(fph)+'&exp='+encodeURIComponent(exp);
+  var es=new EventSource(evtUrl);
+  es.addEventListener('done',function(){es.close();goRepo()});
+  es.addEventListener('timeout',function(){es.close()});
+  es.onerror=function(){};
 }
-
-fetch('/public/github/config').then(r=>r.json()).then(j=>{
-  if(j.ok&&j.data&&j.data.repo) githubRepo=j.data.repo;
-}).catch(()=>{});
-
-function showPhase(name){
-  Object.values(phases).forEach(el=>{el.classList.remove('active')});
-  phases[name].classList.add('active');
-}
-
-function copyText(text,btn){
-  (async ()=>{
-    try{
-      if(navigator.clipboard&&navigator.clipboard.writeText){
-        await navigator.clipboard.writeText(text);
-      }else{
-        const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);
-        ta.select();document.execCommand('copy');ta.remove();
-      }
-      const orig=btn.textContent;btn.textContent='已复制';
-      setTimeout(()=>{btn.textContent=orig},2000);
-    }catch(_){btn.textContent='复制失败';setTimeout(()=>{btn.textContent='复制'},2000)}
-  })();
-}
-
-copyUrlBtn.addEventListener('click',()=>copyText(window.location.href,copyUrlBtn));
-
-function openAuth(){
-  if(!loginUrl) return;
-  childWin=window.open(loginUrl,'_blank','width=600,height=720');
-  if(!childWin){
-    // popup blocked — fall back to navigating self
-    window.location.href=loginUrl;
-    return;
-  }
-  showPhase('wait');
-  startPolling();
-}
-
-function startPolling(){
-  if(pollTimer) return;
-  let attempts=0;
-  pollTimer=setInterval(async ()=>{
-    attempts++;
-    if(attempts>120){
-      clearInterval(pollTimer);pollTimer=null;
-      return;
-    }
-    try{
-      const pr=await fetch('/public/oauth/poll?fp='+encodeURIComponent(fp)+'&fph='+encodeURIComponent(fph)+'&exp='+encodeURIComponent(exp));
-      const pj=await pr.json();
-      if(!pr.ok||!pj.ok) return;
-      const pd=pj.data;
-      if(pd&&pd.done){
-        clearInterval(pollTimer);pollTimer=null;
-        showDone();
-      }
-    }catch(_){}
-  },3000);
-}
-
-function showDone(){
-  showPhase('done');
-  if(!githubRepo){
-    doneMsg.textContent='授权完成，感谢支持！';
-    repoLink.style.display='none';
-    try{if(childWin&&!childWin.closed) childWin.close()}catch(_){}
-    return;
-  }
-
-  const repoUrl='https://github.com/'+githubRepo;
-  repoLink.href=repoUrl;
-
-  // redirect child window to the GitHub repo page
-  if(childWin&&!childWin.closed){
-    try{childWin.location=repoUrl}catch(_){}
-    doneMsg.textContent='已在窗口中打开项目页面，正在尝试自动 Star...';
-
-    // attempt to auto-click the star button after the page loads
-    // this will fail due to cross-origin but we try anyway
-    setTimeout(()=>{tryAutoStar()},3000);
-    setTimeout(()=>{tryAutoStar()},5000);
-  }else{
-    doneMsg.textContent='即将跳转到项目 GitHub 页面，请帮忙点个 Star 支持一下！';
-    setTimeout(()=>{window.location.href=repoUrl},3000);
-  }
-}
-
-function tryAutoStar(){
-  if(!childWin||childWin.closed) return;
-  try{
-    // cross-origin: this will throw, but we try
-    const starBtn=childWin.document.querySelector('button[data-ga-click*="star"]')
-      ||childWin.document.querySelector('.js-social-form button[type="submit"]')
-      ||childWin.document.querySelector('form.js-social-form button');
-    if(starBtn){
-      starBtn.click();
-      doneMsg.textContent='已自动为项目点亮 Star ⭐ 感谢支持！';
-      return;
-    }
-  }catch(_){
-    // cross-origin blocked — expected
-  }
-  doneMsg.textContent='请在打开的窗口中点击 Star ⭐ 按钮支持项目！';
-}
-
-authBtn.addEventListener('click',openAuth);
-
-// also start polling immediately in case the user already completed auth
-// in another browser — the poll will detect it
-if(loginUrl) startPolling();
 })();
 </script>
 </body>

@@ -54,7 +54,7 @@ func setupPublicHandlerWithRedeem(t *testing.T, codebuffURL, authsDir, redeemPat
 	pool := NewKeyPoolWithLabels(nil, nil)
 	reloader := NewReloader(filepath.Join(authsDir, "config.yaml"), cfg, pool, nil)
 	store := NewRedeemStore(cfg.Incentive.RedeemCodesFile)
-	admin := NewAdminHandler(reloader, pool, store)
+	admin := NewAdminHandler(reloader, pool, store, nil)
 	return NewPublicHandler(admin)
 }
 
@@ -338,7 +338,7 @@ func TestPublicPollNoneMode(t *testing.T) {
 	cfg.applyDefaults()
 	pool := NewKeyPoolWithLabels(nil, nil)
 	reloader := NewReloader(filepath.Join(tmp, "config.yaml"), cfg, pool, nil)
-	admin := NewAdminHandler(reloader, pool, nil)
+	admin := NewAdminHandler(reloader, pool, nil, nil)
 	ph := NewPublicHandler(admin)
 
 	req := httptest.NewRequest(http.MethodGet, "/public/oauth/poll?fp=fp_pub_none1&fph=h&exp=X", nil)

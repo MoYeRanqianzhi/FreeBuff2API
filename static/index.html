@@ -95,7 +95,10 @@ main{flex:1;padding:36px 32px;max-width:1100px;margin:0 auto;width:100%}
 /* ── Key 表格 ── */
 .section-title{font-size:17px;font-weight:700;margin-bottom:18px;display:flex;align-items:center;gap:10px;color:var(--text);padding-left:4px}
 .table{display:flex;flex-direction:column;gap:12px}
-.row{display:grid;grid-template-columns:minmax(160px,1.4fr) 1.2fr 1fr 1fr minmax(210px,1.6fr) auto;align-items:center;gap:18px;padding:16px 22px;transition:all .3s var(--ease)}
+.row{display:grid;grid-template-columns:minmax(140px,1.2fr) 1fr .8fr .7fr .7fr minmax(180px,1.4fr) auto;align-items:center;gap:14px;padding:16px 22px;transition:all .3s var(--ease)}
+.sess{font-size:12px;font-family:var(--mono-font);color:var(--muted)}
+.sess .sess-active{color:var(--ok)}
+.sess .sess-queued{color:var(--warn)}
 .donor{display:flex;align-items:center;gap:6px;min-width:0}
 .donor code{font-family:var(--mono-font);font-size:12px;color:var(--mono);background:rgba(255,255,255,.4);border:1px solid var(--border);border-radius:8px;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px;cursor:text}
 .donor .donor-empty{color:var(--muted);font-size:12px;font-style:italic}
@@ -482,12 +485,13 @@ const dotEl=h('span',{class:'dot'});
 const stTextEl=document.createTextNode('');
 const statusEl=h('div',{class:'status'}, dotEl, stTextEl);
 const cdEl=h('div',{class:'countdown'});
+const sessEl=h('div',{class:'sess'});
 const donorEl=h('div',{class:'donor'});
 const actionsEl=h('div',{class:'actions'});
 const row=h('div',{class:'glass row enter',style:`animation-delay:${Math.min(i,8)*40}ms`},
-fpEl, lblEl, statusEl, cdEl, donorEl, actionsEl);
+fpEl, lblEl, statusEl, cdEl, sessEl, donorEl, actionsEl);
 container.appendChild(row);
-r={el:row, fp:fpEl, lbl:lblEl, dot:dotEl, stText:stTextEl, cd:cdEl, donor:donorEl, actions:actionsEl, state:{}};
+r={el:row, fp:fpEl, lbl:lblEl, dot:dotEl, stText:stTextEl, cd:cdEl, sess:sessEl, donor:donorEl, actions:actionsEl, state:{}};
 rows.set(k.index, r);
 }
 const fp=k.fingerprint||'-';
@@ -502,6 +506,16 @@ r.cd.setAttribute('data-until', until);
 if(!until) r.cd.textContent='';
 else r.cd.textContent=fmtDuration(new Date(until).getTime()-Date.now());
 r.state.until=until;
+}
+const sess=k.session;
+const sessKey=sess?JSON.stringify(sess):'';
+if(r.state.sessKey!==sessKey){
+r.sess.innerHTML='';
+if(!sess){ r.sess.textContent='—'; }
+else if(sess.status==='active'){ r.sess.innerHTML='<span class="sess-active">active</span>'; }
+else if(sess.status==='queued'){ const wm=Math.ceil((sess.estimated_wait_ms||0)/60000); r.sess.innerHTML='<span class="sess-queued">queued '+sess.position+'/'+sess.queue_depth+'</span><br><span style="font-size:11px">~'+wm+'min</span>'; }
+else{ r.sess.textContent=sess.status; }
+r.state.sessKey=sessKey;
 }
 const donor=k.donor_key||'';
 const canDonor=!!k.label;

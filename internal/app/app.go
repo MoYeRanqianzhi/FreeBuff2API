@@ -53,7 +53,7 @@ func Run(assets embed.FS) {
 		proxy.sessions.warmUp(cfg.Upstream.BaseURL, keys)
 	}
 
-	admin := NewAdminHandler(reloader, pool, redeem)
+	admin := NewAdminHandler(reloader, pool, redeem, proxy.sessions)
 	public := NewPublicHandler(admin)
 
 	mux := http.NewServeMux()

@@ -490,7 +490,7 @@ func (p *ProxyHandler) servePinned(w http.ResponseWriter, r *http.Request, req m
 				waitMin := qErr.EstimatedWaitMs/60000 + 1
 				log.Printf("pinned: key[%d]=%s queued (pos %d/%d)", idx, fingerprint(upstreamKey), qErr.Position, qErr.QueueDepth)
 				body := fmt.Sprintf(
-					`{"error":{"message":"您的绑定账号正在排队中，预计约 %d 分钟后可用","type":"waiting_room_queued","estimated_wait_seconds":%d}}`,
+					`{"error":{"message":"您的绑定账号正在排队中，预计约 %d 分钟后可高速使用","type":"waiting_room_queued","estimated_wait_seconds":%d}}`,
 					waitMin, qErr.EstimatedWaitMs/1000)
 				w.Header().Set("Retry-After", fmt.Sprintf("%d", qErr.EstimatedWaitMs/1000))
 				writeSanitized(w, http.StatusServiceUnavailable, body)

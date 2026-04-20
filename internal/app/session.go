@@ -202,6 +202,21 @@ func (sm *sessionManager) handleResponse(data []byte, upstreamKey string) (strin
 	return "", fmt.Errorf("freebuff session unexpected status=%q for key=%s", r.Status, fingerprint(upstreamKey))
 }
 
+// SessionStatus returns "active", "queued", or "" for a key.
+// For queued keys it also returns the cached queue info.
+func (sm *sessionManager) sessionStatus(upstreamKey string) (status string, qi *queueInfo) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	if id := sm.instances[upstreamKey]; id != "" {
+		return "active", nil
+	}
+	if q, ok := sm.queueStatus[upstreamKey]; ok {
+		cp := *q
+		return "queued", &cp
+	}
+	return "", nil
+}
+
 // invalidate clears all cached state for a key.
 func (sm *sessionManager) invalidate(upstreamKey string) {
 	sm.mu.Lock()

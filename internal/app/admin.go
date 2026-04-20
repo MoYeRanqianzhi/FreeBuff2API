@@ -29,6 +29,7 @@ type AdminHandler struct {
 	reloader *Reloader
 	pool     *KeyPool
 	redeem   *RedeemStore
+	sessions *sessionManager
 
 	// pollCache dedupes /oauth/poll success by fingerprintId. Without this, a
 	// client that keeps polling after success (or an attacker replaying the
@@ -55,8 +56,8 @@ type pollSlot struct {
 // covers the codebuff device-code validity window plus generous client slack.
 const pollCacheTTL = 10 * time.Minute
 
-func NewAdminHandler(reloader *Reloader, pool *KeyPool, redeem *RedeemStore) *AdminHandler {
-	return &AdminHandler{reloader: reloader, pool: pool, redeem: redeem}
+func NewAdminHandler(reloader *Reloader, pool *KeyPool, redeem *RedeemStore, sessions *sessionManager) *AdminHandler {
+	return &AdminHandler{reloader: reloader, pool: pool, redeem: redeem, sessions: sessions}
 }
 
 // adminGuard gates every /admin/* request. When token.key is empty or missing,
@@ -118,14 +119,22 @@ func (a *AdminHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	type sessionView struct {
+		Status          string `json:"status"`
+		Position        int    `json:"position,omitempty"`
+		QueueDepth      int    `json:"queue_depth,omitempty"`
+		EstimatedWaitMs int64  `json:"estimated_wait_ms,omitempty"`
+		LastChecked     string `json:"last_checked,omitempty"`
+	}
 	type keyView struct {
-		Index       int    `json:"index"`
-		Fingerprint string `json:"fingerprint"`
-		Label       string `json:"label"`
-		Fails       int    `json:"fails"`
-		Broken      bool   `json:"broken"`
-		BrokenUntil string `json:"broken_until,omitempty"`
-		DonorKey    string `json:"donor_key,omitempty"`
+		Index       int          `json:"index"`
+		Fingerprint string       `json:"fingerprint"`
+		Label       string       `json:"label"`
+		Fails       int          `json:"fails"`
+		Broken      bool         `json:"broken"`
+		BrokenUntil string       `json:"broken_until,omitempty"`
+		DonorKey    string       `json:"donor_key,omitempty"`
+		Session     *sessionView `json:"session,omitempty"`
 	}
 	snap := a.pool.Snapshot()
 	donors := a.pool.DonorSnapshot()
@@ -143,6 +152,19 @@ func (a *AdminHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		if i < len(donors) {
 			kv.DonorKey = donors[i]
+		}
+		if a.sessions != nil {
+			st, qi := a.sessions.sessionStatus(e.Key)
+			if st != "" {
+				sv := &sessionView{Status: st}
+				if qi != nil {
+					sv.Position = qi.Position
+					sv.QueueDepth = qi.QueueDepth
+					sv.EstimatedWaitMs = qi.EstimatedWaitMs
+					sv.LastChecked = qi.LastChecked.Format(time.RFC3339)
+				}
+				kv.Session = sv
+			}
 		}
 		keys = append(keys, kv)
 	}

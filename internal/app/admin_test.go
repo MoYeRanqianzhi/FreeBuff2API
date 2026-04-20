@@ -51,7 +51,7 @@ auth:
 	reloader.SetAdminTokenPath(tokPath)
 
 	redeem := NewRedeemStore(filepath.Join(dir, "redeem.txt"))
-	admin := NewAdminHandler(reloader, pool, redeem)
+	admin := NewAdminHandler(reloader, pool, redeem, nil)
 	root := http.NewServeMux()
 	adminMux := http.NewServeMux()
 	admin.mount(adminMux)
@@ -73,7 +73,7 @@ func TestAdminGuardNoToken(t *testing.T) {
 	pool := NewKeyPool([]string{"k"})
 	reloader := NewReloader(cfgPath, cfg, pool, nil)
 	reloader.SetAdminTokenPath(filepath.Join(dir, "does-not-exist.key"))
-	admin := NewAdminHandler(reloader, pool, NewRedeemStore(filepath.Join(dir, "redeem.txt")))
+	admin := NewAdminHandler(reloader, pool, NewRedeemStore(filepath.Join(dir, "redeem.txt")), nil)
 	mux := http.NewServeMux()
 	adminMux := http.NewServeMux()
 	admin.mount(adminMux)

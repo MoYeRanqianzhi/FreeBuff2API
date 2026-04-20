@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -11,43 +12,89 @@ import (
 	"time"
 )
 
+// errSessionQueued is returned when an upstream key's freebuff session is
+// still in the waiting room. The proxy uses the embedded queue info to
+// build a user-friendly error with estimated wait time.
+type errSessionQueued struct {
+	Position        int
+	QueueDepth      int
+	EstimatedWaitMs int64
+}
+
+func (e *errSessionQueued) Error() string {
+	return fmt.Sprintf("session queued (position %d/%d, ~%ds)",
+		e.Position, e.QueueDepth, e.EstimatedWaitMs/1000)
+}
+
+type queueInfo struct {
+	InstanceID      string
+	Position        int
+	QueueDepth      int
+	EstimatedWaitMs int64
+	LastChecked     time.Time
+}
+
 // sessionManager maintains per-upstream-key freebuff session instance IDs.
-// codebuff's waiting room requires a freebuff_instance_id in codebuff_metadata
-// for free-mode requests; without it the server returns 428.
+// Sessions are checked lazily: status updates happen when a request tries
+// a key, not via background polling.
 type sessionManager struct {
-	mu        sync.RWMutex
-	instances map[string]string // upstreamKey → instanceId
-	pending   map[string]bool   // keys with background poll in flight
-	client    *http.Client
+	mu          sync.RWMutex
+	instances   map[string]string     // upstreamKey → instanceId (active/disabled)
+	queueStatus map[string]*queueInfo // upstreamKey → queue info
+	client      *http.Client
 }
 
 func newSessionManager(client *http.Client) *sessionManager {
 	return &sessionManager{
-		instances: make(map[string]string),
-		pending:   make(map[string]bool),
-		client:    client,
+		instances:   make(map[string]string),
+		queueStatus: make(map[string]*queueInfo),
+		client:      client,
 	}
 }
 
-// getInstanceID returns the cached instanceId for a key, or "" if none.
 func (sm *sessionManager) getInstanceID(upstreamKey string) string {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return sm.instances[upstreamKey]
 }
 
-// ensureSession calls POST /api/v1/freebuff/session to join/takeover a session
-// and caches the returned instanceId. Returns the instanceId or error.
+func (sm *sessionManager) getQueueInfo(upstreamKey string) *queueInfo {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	qi, ok := sm.queueStatus[upstreamKey]
+	if !ok {
+		return nil
+	}
+	cp := *qi
+	return &cp
+}
+
+// ensureSession returns a cached active instanceId, or checks/joins the
+// waiting room. Returns errSessionQueued (not a real failure) when the key
+// is still in queue — callers must not treat this as a breaker event.
 func (sm *sessionManager) ensureSession(ctx context.Context, baseURL, upstreamKey string) (string, error) {
 	if id := sm.getInstanceID(upstreamKey); id != "" {
 		return id, nil
 	}
+
+	// Known queued — GET to check if admitted without mutating queue position.
+	if qi := sm.getQueueInfo(upstreamKey); qi != nil {
+		id, err := sm.pollOnce(ctx, baseURL, upstreamKey, qi.InstanceID)
+		if err == nil {
+			return id, nil
+		}
+		var qErr *errSessionQueued
+		if errors.As(err, &qErr) {
+			return "", err
+		}
+		// Non-queue error (superseded, none, network) — clear and fall through to POST.
+		sm.invalidate(upstreamKey)
+	}
+
 	return sm.requestSession(ctx, baseURL, upstreamKey)
 }
 
-// requestSession does the actual POST and caches the result.
-// When the session is queued, it kicks off a background poll goroutine
-// and returns an error immediately so the caller can try another key.
+// requestSession POSTs to /api/v1/freebuff/session to join or take over.
 func (sm *sessionManager) requestSession(ctx context.Context, baseURL, upstreamKey string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/v1/freebuff/session", nil)
 	if err != nil {
@@ -67,140 +114,114 @@ func (sm *sessionManager) requestSession(ctx context.Context, baseURL, upstreamK
 		return "", fmt.Errorf("freebuff session status %d: %s", resp.StatusCode, string(data))
 	}
 
-	var result struct {
-		Status     string `json:"status"`
-		InstanceID string `json:"instanceId"`
+	return sm.handleResponse(data, upstreamKey)
+}
+
+// pollOnce does a non-mutating GET to check if a queued session is admitted.
+func (sm *sessionManager) pollOnce(ctx context.Context, baseURL, upstreamKey, instanceID string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api/v1/freebuff/session", nil)
+	if err != nil {
+		return "", err
 	}
-	if err := json.Unmarshal(data, &result); err != nil {
+	req.Header.Set("Authorization", "Bearer "+upstreamKey)
+	req.Header.Set("X-Freebuff-Instance-Id", instanceID)
+
+	resp, err := sm.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("freebuff session poll failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("freebuff session poll status %d: %s", resp.StatusCode, string(data))
+	}
+
+	return sm.handleResponse(data, upstreamKey)
+}
+
+// handleResponse parses the JSON from POST or GET /session and updates
+// internal state. Returns instanceId on success, errSessionQueued when
+// queued, or a plain error for unexpected/terminal states.
+func (sm *sessionManager) handleResponse(data []byte, upstreamKey string) (string, error) {
+	var r struct {
+		Status          string `json:"status"`
+		InstanceID      string `json:"instanceId"`
+		Position        int    `json:"position"`
+		QueueDepth      int    `json:"queueDepth"`
+		EstimatedWaitMs int64  `json:"estimatedWaitMs"`
+	}
+	if err := json.Unmarshal(data, &r); err != nil {
 		return "", fmt.Errorf("freebuff session parse error: %w", err)
 	}
 
-	if result.Status == "disabled" {
-		log.Printf("freebuff session: waiting room disabled for key=%s", fingerprint(upstreamKey))
+	switch r.Status {
+	case "disabled":
 		sm.mu.Lock()
 		sm.instances[upstreamKey] = "disabled"
+		delete(sm.queueStatus, upstreamKey)
 		sm.mu.Unlock()
 		return "", nil
-	}
 
-	if result.Status == "active" && result.InstanceID != "" {
-		log.Printf("freebuff session: active instanceId=%s for key=%s", result.InstanceID[:8], fingerprint(upstreamKey))
+	case "active", "ended":
+		if r.InstanceID == "" {
+			return "", fmt.Errorf("freebuff session %s but no instanceId for key=%s", r.Status, fingerprint(upstreamKey))
+		}
+		log.Printf("freebuff session: %s instanceId=%s for key=%s", r.Status, r.InstanceID[:8], fingerprint(upstreamKey))
 		sm.mu.Lock()
-		sm.instances[upstreamKey] = result.InstanceID
+		sm.instances[upstreamKey] = r.InstanceID
+		delete(sm.queueStatus, upstreamKey)
 		sm.mu.Unlock()
-		return result.InstanceID, nil
+		return r.InstanceID, nil
+
+	case "queued":
+		sm.mu.Lock()
+		sm.queueStatus[upstreamKey] = &queueInfo{
+			InstanceID:      r.InstanceID,
+			Position:        r.Position,
+			QueueDepth:      r.QueueDepth,
+			EstimatedWaitMs: r.EstimatedWaitMs,
+			LastChecked:     time.Now(),
+		}
+		delete(sm.instances, upstreamKey)
+		sm.mu.Unlock()
+		return "", &errSessionQueued{
+			Position:        r.Position,
+			QueueDepth:      r.QueueDepth,
+			EstimatedWaitMs: r.EstimatedWaitMs,
+		}
+
+	case "none", "superseded":
+		sm.mu.Lock()
+		delete(sm.instances, upstreamKey)
+		delete(sm.queueStatus, upstreamKey)
+		sm.mu.Unlock()
+		return "", fmt.Errorf("freebuff session %s for key=%s", r.Status, fingerprint(upstreamKey))
 	}
 
-	if result.Status == "queued" {
-		sm.startBackgroundPoll(baseURL, upstreamKey, result.InstanceID)
-		return "", fmt.Errorf("freebuff session: queued for key=%s (polling in background)", fingerprint(upstreamKey))
-	}
-
-	return "", fmt.Errorf("freebuff session unexpected status=%q for key=%s", result.Status, fingerprint(upstreamKey))
+	return "", fmt.Errorf("freebuff session unexpected status=%q for key=%s", r.Status, fingerprint(upstreamKey))
 }
 
-// startBackgroundPoll kicks off a goroutine that polls GET /session until
-// the key is admitted, then caches the instanceId. Only one poll per key.
-func (sm *sessionManager) startBackgroundPoll(baseURL, upstreamKey, instanceID string) {
-	sm.mu.Lock()
-	if sm.pending[upstreamKey] {
-		sm.mu.Unlock()
-		return
-	}
-	sm.pending[upstreamKey] = true
-	sm.mu.Unlock()
-
-	log.Printf("freebuff session: queued for key=%s, background poll started", fingerprint(upstreamKey))
-
-	go func() {
-		defer func() {
-			sm.mu.Lock()
-			delete(sm.pending, upstreamKey)
-			sm.mu.Unlock()
-		}()
-		sm.pollUntilActive(baseURL, upstreamKey, instanceID)
-	}()
-}
-
-// invalidate clears the cached instanceId for a key, forcing re-request on next use.
+// invalidate clears all cached state for a key.
 func (sm *sessionManager) invalidate(upstreamKey string) {
 	sm.mu.Lock()
 	delete(sm.instances, upstreamKey)
+	delete(sm.queueStatus, upstreamKey)
 	sm.mu.Unlock()
 }
 
-// pollUntilActive polls GET /api/v1/freebuff/session until the session becomes
-// active or times out. Uses its own context (not tied to any request).
-func (sm *sessionManager) pollUntilActive(baseURL, upstreamKey, instanceID string) {
-	const pollInterval = 5 * time.Second
-	const maxWait = 10 * time.Minute
-
-	ctx, cancel := context.WithTimeout(context.Background(), maxWait)
-	defer cancel()
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Printf("freebuff session: timed out waiting for admission key=%s", fingerprint(upstreamKey))
-			return
-		case <-time.After(pollInterval):
-		}
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api/v1/freebuff/session", nil)
-		if err != nil {
-			return
-		}
-		req.Header.Set("Authorization", "Bearer "+upstreamKey)
-		req.Header.Set("X-Freebuff-Instance-Id", instanceID)
-
-		resp, err := sm.client.Do(req)
-		if err != nil {
-			continue
-		}
-		data, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			continue
-		}
-
-		var result struct {
-			Status     string `json:"status"`
-			InstanceID string `json:"instanceId"`
-		}
-		if err := json.Unmarshal(data, &result); err != nil {
-			continue
-		}
-
-		if result.Status == "active" && result.InstanceID != "" {
-			log.Printf("freebuff session: admitted! instanceId=%s for key=%s", result.InstanceID[:8], fingerprint(upstreamKey))
-			sm.mu.Lock()
-			sm.instances[upstreamKey] = result.InstanceID
-			sm.mu.Unlock()
-			return
-		}
-
-		if result.Status == "queued" {
-			continue
-		}
-
-		log.Printf("freebuff session: unexpected poll status=%q for key=%s", result.Status, fingerprint(upstreamKey))
-		return
-	}
-}
-
-// warmUp pre-requests sessions for all keys in the background.
-// Called once at startup so sessions are ready when real requests arrive.
+// warmUp fires a single POST /session for each key at startup so they
+// enter the queue early. No background polling — status is updated
+// lazily when requests come in.
 func (sm *sessionManager) warmUp(baseURL string, keys []string) {
-	log.Printf("freebuff session: warming up %d keys in background", len(keys))
+	log.Printf("freebuff session: warming up %d keys", len(keys))
 	for _, key := range keys {
-		key := key
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		go func(k string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			sm.requestSession(ctx, baseURL, key)
-		}()
-		time.Sleep(200 * time.Millisecond)
+			sm.requestSession(ctx, baseURL, k)
+		}(key)
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

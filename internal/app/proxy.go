@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -182,6 +183,7 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tried := make(map[int]struct{}, maxRetries)
 	lastStatus := 0
+	var bestQueue *errSessionQueued
 
 	accountRateLimited := false
 	for attempt := 0; attempt < maxRetries; attempt++ {
@@ -189,9 +191,6 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if _, seen := tried[idx]; seen {
 				return false
 			}
-			// Skip accounts whose per-key bucket is empty — they'll become
-			// available again after refill. If that's the only reason we're
-			// skipping, remember so the exhaustion branch can tell the user.
 			if !limits.AccountAllow(key) {
 				accountRateLimited = true
 				return false
@@ -207,6 +206,15 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// For free mode, ensure a freebuff session exists for this upstream key.
 		if isFreeMode {
 			if _, err := p.sessions.ensureSession(r.Context(), cfg.Upstream.BaseURL, upstreamKey); err != nil {
+				var qErr *errSessionQueued
+				if errors.As(err, &qErr) {
+					log.Printf("retry %d: key[%d]=%s queued (pos %d/%d, ~%ds)", attempt+1, keyIdx, fingerprint(upstreamKey), qErr.Position, qErr.QueueDepth, qErr.EstimatedWaitMs/1000)
+					if bestQueue == nil || qErr.EstimatedWaitMs < bestQueue.EstimatedWaitMs {
+						bestQueue = qErr
+					}
+					limits.AccountRefund(upstreamKey)
+					continue
+				}
 				log.Printf("retry %d: freebuff session key[%d]=%s failed: %v", attempt+1, keyIdx, fingerprint(upstreamKey), err)
 				limits.AccountRefund(upstreamKey)
 				lastStatus = http.StatusBadGateway
@@ -323,8 +331,13 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Nothing was tried: either the pool is empty, every account is rate-limited,
-	// or every account is circuit-broken.
+	// All tried keys were in the waiting room — return a clear message
+	// with the estimated wait time so the caller knows when to retry.
+	if bestQueue != nil {
+		writeQueuedError(w, bestQueue)
+		return
+	}
+
 	if len(tried) == 0 {
 		if accountRateLimited {
 			writeSanitized(w, http.StatusTooManyRequests,
@@ -336,13 +349,11 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				`{"error":{"message":"号池无可用账号，请联系管理员添加上游账号","type":"pool_empty"}}`)
 			return
 		}
-		// Pool has keys but all are circuit-broken.
 		writeSanitized(w, http.StatusServiceUnavailable,
 			`{"error":{"message":"所有上游账号均已熔断，请稍后重试","type":"pool_all_broken"}}`)
 		return
 	}
 
-	// Tried one or more keys, all failed — sanitize based on the last status.
 	status, sanitized := sanitizeUpstreamError(lastStatus)
 	if sanitized == "" {
 		status = http.StatusBadGateway
@@ -378,6 +389,20 @@ func isSessionGateStatus(status int) bool {
 		return true
 	}
 	return false
+}
+
+// writeQueuedError sends a 503 with a human-readable waiting room message
+// and a machine-readable Retry-After + estimated_wait_seconds.
+func writeQueuedError(w http.ResponseWriter, q *errSessionQueued) {
+	waitSec := q.EstimatedWaitMs / 1000
+	waitMin := waitSec/60 + 1
+	body := fmt.Sprintf(
+		`{"error":{"message":"上游账号正在排队等待中，预计约 %d 分钟后可高速使用","type":"waiting_room_queued","estimated_wait_seconds":%d,"position":%d,"queue_depth":%d}}`,
+		waitMin, waitSec, q.Position, q.QueueDepth)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprintf("%d", waitSec))
+	w.WriteHeader(http.StatusServiceUnavailable)
+	io.WriteString(w, body)
 }
 
 func (p *ProxyHandler) handleStream(w http.ResponseWriter, resp *http.Response) {
@@ -460,6 +485,17 @@ func (p *ProxyHandler) servePinned(w http.ResponseWriter, r *http.Request, req m
 			req["model"] = freeModel
 		}
 		if _, err := p.sessions.ensureSession(r.Context(), cfg.Upstream.BaseURL, upstreamKey); err != nil {
+			var qErr *errSessionQueued
+			if errors.As(err, &qErr) {
+				waitMin := qErr.EstimatedWaitMs/60000 + 1
+				log.Printf("pinned: key[%d]=%s queued (pos %d/%d)", idx, fingerprint(upstreamKey), qErr.Position, qErr.QueueDepth)
+				body := fmt.Sprintf(
+					`{"error":{"message":"您的绑定账号正在排队中，预计约 %d 分钟后可用","type":"waiting_room_queued","estimated_wait_seconds":%d}}`,
+					waitMin, qErr.EstimatedWaitMs/1000)
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", qErr.EstimatedWaitMs/1000))
+				writeSanitized(w, http.StatusServiceUnavailable, body)
+				return
+			}
 			log.Printf("pinned: freebuff session key[%d]=%s failed: %v", idx, fingerprint(upstreamKey), err)
 			writeSanitized(w, http.StatusBadGateway,
 				`{"error":{"message":"上游服务异常，请稍后重试","type":"upstream_error"}}`)

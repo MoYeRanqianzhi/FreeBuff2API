@@ -17,8 +17,9 @@ const (
 	// ctxKeyPinnedKeyIdx is the KeyPool index the request is pinned to.
 	// Set by authGuard when a donor key is recognised. Presence means the
 	// proxy must NOT retry other keys.
-	ctxKeyPinnedKeyIdx   ctxKey = "pinned_key_idx"
-	ctxKeyPinnedUpstream ctxKey = "pinned_upstream_key"
+	ctxKeyPinnedKeyIdx    ctxKey = "pinned_key_idx"
+	ctxKeyPinnedUpstream  ctxKey = "pinned_upstream_key"
+	ctxKeySessionRetried  ctxKey = "session_retried"
 )
 
 // Donor keys share the exact `sk-or-v1-…` shape as real OpenRouter keys (no

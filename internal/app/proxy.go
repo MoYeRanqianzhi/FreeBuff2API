@@ -264,14 +264,18 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// 426 = freebuff session stale; invalidate and retry same key.
-		if resp.StatusCode == 426 && isFreeMode {
+		// Freebuff session gate rejections — invalidate cached session and retry same key.
+		//   428 = waiting_room_required (no session row)
+		//   410 = session_expired (past hard cutoff)
+		//   409 = session_superseded (another instance took over)
+		//   426 = freebuff_update_required (no instance_id sent — shouldn't happen but handle gracefully)
+		if isFreeMode && isSessionGateStatus(resp.StatusCode) {
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 			p.sessions.invalidate(upstreamKey)
-			log.Printf("retry %d: 426 session stale key[%d]=%s — re-requesting session", attempt+1, keyIdx, fingerprint(upstreamKey))
+			log.Printf("retry %d: %d session gate reject key[%d]=%s — re-requesting session", attempt+1, resp.StatusCode, keyIdx, fingerprint(upstreamKey))
 			delete(tried, keyIdx)
-			lastStatus = 426
+			lastStatus = resp.StatusCode
 			continue
 		}
 
@@ -358,6 +362,19 @@ func isRetryableStatus(status int) bool {
 		status == http.StatusTooManyRequests:
 		return true
 	case status >= 500:
+		return true
+	}
+	return false
+}
+
+// isSessionGateStatus reports whether the upstream returned a freebuff
+// waiting-room gate rejection that should trigger session re-acquisition.
+func isSessionGateStatus(status int) bool {
+	switch status {
+	case 428, // waiting_room_required
+		410, // session_expired
+		409, // session_superseded
+		426: // freebuff_update_required (legacy / no instance_id)
 		return true
 	}
 	return false
@@ -498,6 +515,23 @@ func (p *ProxyHandler) servePinned(w http.ResponseWriter, r *http.Request, req m
 		return
 	}
 	defer resp.Body.Close()
+
+	// Session gate rejection on pinned path — invalidate + re-request session,
+	// then retry once. The context flag prevents infinite recursion.
+	if pinnedFreeMode && isSessionGateStatus(resp.StatusCode) {
+		io.Copy(io.Discard, resp.Body)
+		if _, already := r.Context().Value(ctxKeySessionRetried).(bool); already {
+			log.Printf("pinned: %d session gate reject after retry key[%d]=%s — giving up", resp.StatusCode, idx, fingerprint(upstreamKey))
+			writeSanitized(w, http.StatusBadGateway,
+				`{"error":{"message":"上游会话不可用，请稍后重试","type":"upstream_error"}}`)
+			return
+		}
+		p.sessions.invalidate(upstreamKey)
+		log.Printf("pinned: %d session gate reject key[%d]=%s — re-requesting session and retrying", resp.StatusCode, idx, fingerprint(upstreamKey))
+		ctx := context.WithValue(r.Context(), ctxKeySessionRetried, true)
+		p.servePinned(w, r.WithContext(ctx), req, cfg, idx, upstreamKey, isStream)
+		return
+	}
 
 	// Retryable statuses are NOT retried — the whole point of pinning is to
 	// bind failure to the account. We still update breaker so admin can see
